@@ -2,6 +2,7 @@ package com.aesthetic.framed.ui.camera.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,12 +19,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.aesthetic.framed.ui.theme.EmeraldLevel
 
 @Composable
 fun ShutterButton(
     isPrimedOrLevel: Boolean = false,
+    autoCaptureProgress: Float = 0f,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -40,7 +44,7 @@ fun ShutterButton(
 
     Box(
         modifier = modifier
-            .size(80.dp)
+            .size(86.dp)
             .scale(scale)
             .clickable(
                 interactionSource = interactionSource,
@@ -49,7 +53,20 @@ fun ShutterButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Outer concentric ring
+        // Smooth Circular Progress Arc for Auto-Capture (800ms lock-in)
+        if (autoCaptureProgress > 0f) {
+            Canvas(modifier = Modifier.size(84.dp)) {
+                drawArc(
+                    color = EmeraldLevel,
+                    startAngle = -90f,
+                    sweepAngle = autoCaptureProgress * 360f,
+                    useCenter = false,
+                    style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+        }
+
+        // Outer concentric ring illuminated in vibrant Emerald Green (#10B981)
         Box(
             modifier = Modifier
                 .size(76.dp)
@@ -69,7 +86,7 @@ fun ShutterButton(
                 .background(if (isPrimedOrLevel) EmeraldLevel.copy(alpha = 0.2f) else Color.White)
         )
 
-        // Core white disc
+        // Core white/emerald disc
         Box(
             modifier = Modifier
                 .size(54.dp)

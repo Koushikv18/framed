@@ -86,7 +86,57 @@ fun CameraScreen(
     var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
     var isAiAnalyzing by remember { mutableStateOf(false) }
     var aiCritiqueBanner by remember { mutableStateOf<String?>(null) }
+    var isAutoCaptureEnabled by remember { mutableStateOf(false) }
+    var autoCaptureProgress by remember { mutableStateOf(0f) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
+    // Alignment, Zoom, and Horizon Lock-in Condition
+    val isFullyLockedIn = if (compositionState.coachMode == CoachMode.OFF) {
+        horizonState.isLevel
+    } else {
+        (compositionState.compositionScore >= 85 || compositionState.targetIoU >= 0.55f) && horizonState.isLevel
+    }
+
+    // Trigger subtle haptic tick on lock-in transition
+    var wasLockedIn by remember { mutableStateOf(false) }
+    LaunchedEffect(isFullyLockedIn) {
+        if (isFullyLockedIn && !wasLockedIn) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+        wasLockedIn = isFullyLockedIn
+    }
+
+    // Hands-free Auto-Capture timer: 800ms continuous lock-in
+    LaunchedEffect(isFullyLockedIn, isAutoCaptureEnabled) {
+        if (isAutoCaptureEnabled && isFullyLockedIn) {
+            val startTime = System.currentTimeMillis()
+            val duration = 800L
+            while (true) {
+                val elapsed = System.currentTimeMillis() - startTime
+                val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
+                autoCaptureProgress = progress
+                if (progress >= 1f) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    cameraEngine.takePhoto(
+                        onSuccess = { uri ->
+                            lastCapturedUri = uri
+                            Toast.makeText(context, "Auto-captured: $uri", Toast.LENGTH_SHORT).show()
+                            onPhotoCaptured(uri)
+                        },
+                        onError = { exc ->
+                            Toast.makeText(context, "Capture failed: ${exc.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                    autoCaptureProgress = 0f
+                    kotlinx.coroutines.delay(1200)
+                    break
+                }
+                kotlinx.coroutines.delay(16)
+            }
+        } else {
+            autoCaptureProgress = 0f
+        }
+    }
 
     LaunchedEffect(horizonState) {
         cameraEngine.compositionAnalyzer.updateHorizonState(horizonState)
@@ -307,6 +357,10 @@ fun CameraScreen(
                             onTargetBoxDrawn = { box ->
                                 cameraEngine.compositionAnalyzer.setDrawnTarget(box)
                             },
+                            onScanRequested = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                cameraEngine.compositionAnalyzer.scanComposition()
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
 
@@ -450,7 +504,7 @@ fun CameraScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 32.dp),
+                        .padding(horizontal = 24.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -476,24 +530,55 @@ fun CameraScreen(
                         )
                     }
 
-                    // Minimalist Shutter Button
-                    // Highlights green when horizon is level OR when composition is primed (Score >= 85% or IoU >= 0.55)
-                    ShutterButton(
-                        isPrimedOrLevel = horizonState.isLevel || compositionState.isShutterPrimed,
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            cameraEngine.takePhoto(
-                                onSuccess = { uri ->
-                                    lastCapturedUri = uri
-                                    Toast.makeText(context, "Photo captured: $uri", Toast.LENGTH_SHORT).show()
-                                    onPhotoCaptured(uri)
-                                },
-                                onError = { exc ->
-                                    Toast.makeText(context, "Capture failed: ${exc.message}", Toast.LENGTH_SHORT).show()
+                    // Shutter Button & Auto-Capture Toggle Chip
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ShutterButton(
+                            isPrimedOrLevel = isFullyLockedIn,
+                            autoCaptureProgress = autoCaptureProgress,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                cameraEngine.takePhoto(
+                                    onSuccess = { uri ->
+                                        lastCapturedUri = uri
+                                        Toast.makeText(context, "Photo captured: $uri", Toast.LENGTH_SHORT).show()
+                                        onPhotoCaptured(uri)
+                                    },
+                                    onError = { exc ->
+                                        Toast.makeText(context, "Capture failed: ${exc.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+                        )
+
+                        // Optional "AUTO" toggle chip beside the shutter button
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isAutoCaptureEnabled) EmeraldLevel.copy(alpha = 0.2f) else StudioDark)
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isAutoCaptureEnabled) EmeraldLevel else StudioBorder,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    isAutoCaptureEnabled = !isAutoCaptureEnabled
                                 }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "AUTO",
+                                color = if (isAutoCaptureEnabled) EmeraldLevel else StudioTextMuted,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
                             )
                         }
-                    )
+                    }
 
                     // Framed Library navigation button
                     Box(

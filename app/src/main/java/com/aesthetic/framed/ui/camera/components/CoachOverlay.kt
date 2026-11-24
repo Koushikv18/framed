@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +53,7 @@ private enum class DragMode {
 fun CoachOverlay(
     state: CompositionState,
     onTargetBoxDrawn: (DrawnTargetBox?) -> Unit,
+    onScanRequested: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (state.coachMode == CoachMode.OFF) return
@@ -278,46 +280,79 @@ fun CoachOverlay(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(StudioDark.copy(alpha = 0.90f))
-                    .border(1.dp, if (state.isShutterPrimed) EmeraldLevel else StudioBorder, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (state.coachMode == CoachMode.AUTO_FRAME) {
-                    Text(
-                        text = "SCORE",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "${state.compositionScore}%",
-                        color = if (state.isScorePrimed) EmeraldLevel else StudioText,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                } else if (state.coachMode == CoachMode.DRAW_TO_TRACK) {
-                    val iouPercent = (state.targetIoU * 100).toInt()
-                    Text(
-                        text = if (state.drawnTargetBox == null) "DRAW TARGET BOX" else if (state.isTargetLocked) "LOCKED" else "TRACKING",
-                        color = if (state.isTargetLocked) EmeraldLevel else Color.White.copy(alpha = 0.6f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    if (state.drawnTargetBox != null) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(StudioDark.copy(alpha = 0.90f))
+                            .border(1.dp, if (state.isShutterPrimed) EmeraldLevel else StudioBorder, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "SCORE",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "$iouPercent% IoU",
-                            color = if (state.isTargetLocked) EmeraldLevel else StudioText,
+                            text = "${state.compositionScore}%",
+                            color = if (state.isScorePrimed) EmeraldLevel else StudioText,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    // Tactile "SCAN" button for Auto Frame mode
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(StudioDark.copy(alpha = 0.90f))
+                            .border(1.dp, EmeraldLevel.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                            .clickable { onScanRequested() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "SCAN",
+                            color = EmeraldLevel,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
+                    }
+                } else if (state.coachMode == CoachMode.DRAW_TO_TRACK) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(StudioDark.copy(alpha = 0.90f))
+                            .border(1.dp, if (state.isShutterPrimed) EmeraldLevel else StudioBorder, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val iouPercent = (state.targetIoU * 100).toInt()
+                        Text(
+                            text = if (state.drawnTargetBox == null) "DRAW TARGET BOX" else if (state.isTargetLocked) "LOCKED" else "TRACKING",
+                            color = if (state.isTargetLocked) EmeraldLevel else Color.White.copy(alpha = 0.6f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        if (state.drawnTargetBox != null) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "$iouPercent% IoU",
+                                color = if (state.isTargetLocked) EmeraldLevel else StudioText,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
                 }
             }

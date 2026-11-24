@@ -82,7 +82,7 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
     fun setCoachMode(mode: CoachMode) {
         _compositionState.value = _compositionState.value.copy(
             coachMode = mode,
-            drawnTargetBox = if (mode == CoachMode.DRAW_TO_TRACK) _compositionState.value.drawnTargetBox else null
+            drawnTargetBox = if (mode != CoachMode.OFF) _compositionState.value.drawnTargetBox else null
         )
     }
 
@@ -94,6 +94,40 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
 
     fun setIsDrawing(isDrawing: Boolean) {
         _compositionState.value = _compositionState.value.copy(isDrawing = isDrawing)
+    }
+
+    /**
+     * Tactile One-Tap SCAN Workflow:
+     * Analyzes detected subjects, rule-of-thirds intersections, and framing to place
+     * an optimal recommended target composition box on the viewfinder.
+     */
+    fun scanComposition() {
+        val state = _compositionState.value
+        val primary = state.primarySubject
+
+        val (targetCx, targetCy, boxW, boxH) = if (primary != null) {
+            val thirdLinesX = listOf(1f / 3f, 2f / 3f)
+            val thirdLinesY = listOf(1f / 3f, 2f / 3f)
+            val nearestThirdX = thirdLinesX.minByOrNull { abs(primary.centerX - it) } ?: (1f / 3f)
+            val nearestThirdY = thirdLinesY.minByOrNull { abs(primary.centerY - it) } ?: (1f / 3f)
+
+            val cx = (primary.centerX * 0.4f + nearestThirdX * 0.6f).coerceIn(0.25f, 0.75f)
+            val cy = (primary.centerY * 0.4f + nearestThirdY * 0.6f).coerceIn(0.25f, 0.75f)
+            val w = (primary.normalizedBounds.width() * 1.35f).coerceIn(0.28f, 0.75f)
+            val h = (primary.normalizedBounds.height() * 1.35f).coerceIn(0.28f, 0.75f)
+            listOf(cx, cy, w, h)
+        } else {
+            listOf(1f / 3f, 1f / 3f, 0.38f, 0.45f)
+        }
+
+        val left = (targetCx - boxW / 2f).coerceIn(0.04f, 0.96f - boxW)
+        val top = (targetCy - boxH / 2f).coerceIn(0.04f, 0.96f - boxH)
+        val right = left + boxW
+        val bottom = top + boxH
+
+        _compositionState.value = _compositionState.value.copy(
+            drawnTargetBox = DrawnTargetBox(left, top, right, bottom)
+        )
     }
 
     /**
@@ -177,67 +211,103 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
         val currentState = _compositionState.value
         val hints = mutableListOf<String>()
 
-        // 1. Horizon tilt check
+        // 1. Horizon tilt check (Level snap within +/- 0.5 degrees)
         val tiltAngle = abs(currentHorizonState.rollDegrees)
-        val isLevel = currentHorizonState.isLevel
-        if (!isLevel && tiltAngle > 2.0f) {
-            if (currentHorizonState.rollDegrees > 0f) {
-                hints.add("Tilt left")
-            } else {
-                hints.add("Tilt right")
-            }
+        val isLevel = currentHorizonState.isLevel || tiltAngle <= 0.5f
+        if (!isLevel) {
+            hints.add("Level horizon")
         }
 
-        // 2. Exposure & Luma Histogram Check
-        if (avgLuma < 0.25f) {
-            hints.add("Low light: Increase EV")
-        } else if (avgLuma > 0.82f) {
-            hints.add("Harsh light: Reduce EV")
+        // 2. Exposure & Luma Histogram Check (underexposed < 35 or clipped > 225 out of 255)
+        if (avgLuma < 0.137f || avgLuma > 0.882f) {
+            hints.add("Tap to balance light")
         }
 
-        // 3. Subject Framing & S25 Ultra Lens Coaching Pills
+        // 3. Subject Framing & S25 Ultra Lens Coaching
         var compositionScore = 70
         var iouWithTarget = 0.0f
+        val activeTargetBox = currentState.drawnTargetBox
 
         if (primary != null) {
             val cx = primary.centerX
             val cy = primary.centerY
             val area = primary.area
 
-            // S25 Ultra Lens recommendations based on subject size & active zoom
-            if (area < 0.08f && currentZoom <= 1.0f) {
-                hints.add("Zoom in to 3x")
-            } else if (area < 0.04f && currentZoom <= 3.0f) {
-                hints.add("Zoom in to 5x")
-            } else if (area > 0.65f && currentZoom >= 1.0f) {
-                hints.add("Step back to 0.6x")
-            }
+            if (activeTargetBox != null) {
+                // Real-time directional deltas between live subject and target frame
+                val targetRect = RectF(
+                    activeTargetBox.left,
+                    activeTargetBox.top,
+                    activeTargetBox.right,
+                    activeTargetBox.bottom
+                )
+                val targetCx = targetRect.centerX()
+                val targetCy = targetRect.centerY()
+                val targetArea = targetRect.width() * targetRect.height()
 
-            // Rule of thirds evaluation
-            val thirdLinesX = listOf(1f / 3f, 2f / 3f)
-            val thirdLinesY = listOf(1f / 3f, 2f / 3f)
-            val minDx = thirdLinesX.minOf { abs(cx - it) }
-            val minDy = thirdLinesY.minOf { abs(cy - it) }
-
-            if (minDx > 0.12f && minDy > 0.12f && abs(cx - 0.5f) > 0.15f) {
-                hints.add("Center or align on thirds")
-            } else {
-                compositionScore += 15
-            }
-
-            // Draw to Track mode evaluation
-            val drawnBox = currentState.drawnTargetBox
-            if (currentState.coachMode == CoachMode.DRAW_TO_TRACK && drawnBox != null) {
-                val targetRect = RectF(drawnBox.left, drawnBox.top, drawnBox.right, drawnBox.bottom)
                 iouWithTarget = calculateIoU(primary.normalizedBounds, targetRect)
 
+                // Pan hints (delta between subject and target center)
+                val deltaX = cx - targetCx
+                val deltaY = cy - targetCy
+
+                if (deltaX < -0.04f) {
+                    hints.add("Pan left")
+                } else if (deltaX > 0.04f) {
+                    hints.add("Pan right")
+                }
+
+                // Tilt hints
+                if (deltaY < -0.04f) {
+                    hints.add("Tilt up")
+                } else if (deltaY > 0.04f) {
+                    hints.add("Tilt down")
+                }
+
+                // Lens/Zoom hint based on subject-to-target area ratio
+                if (targetArea > 0f) {
+                    val ratio = area / targetArea
+                    if (ratio < 0.35f) {
+                        when {
+                            currentZoom < 1.5f -> hints.add("Switch to 3x")
+                            currentZoom < 3.5f -> hints.add("Switch to 5x")
+                            else -> hints.add("Move closer")
+                        }
+                    } else if (ratio > 1.35f) {
+                        when {
+                            currentZoom >= 1.0f -> hints.add("Step back to 0.6x")
+                            else -> hints.add("Move closer")
+                        }
+                    }
+                }
+
                 if (iouWithTarget >= 0.55f) {
-                    hints.clear()
-                    hints.add("Locked on target")
-                    compositionScore = 95
+                    compositionScore = (85 + (iouWithTarget - 0.55f) * 33f).toInt().coerceIn(85, 100)
+                    if (isLevel) {
+                        hints.add(0, "Locked on target")
+                    }
                 } else {
-                    hints.add("Align subject in box")
-                    compositionScore = (iouWithTarget * 100).toInt().coerceIn(30, 80)
+                    compositionScore = (iouWithTarget * 100).toInt().coerceIn(35, 84)
+                }
+            } else {
+                // Pre-scan Auto Frame: General S25 Ultra Lens recommendations & rule-of-thirds
+                if (area < 0.08f && currentZoom <= 1.0f) {
+                    hints.add("Switch to 3x")
+                } else if (area < 0.04f && currentZoom <= 3.0f) {
+                    hints.add("Switch to 5x")
+                } else if (area > 0.65f && currentZoom >= 1.0f) {
+                    hints.add("Step back to 0.6x")
+                }
+
+                val thirdLinesX = listOf(1f / 3f, 2f / 3f)
+                val thirdLinesY = listOf(1f / 3f, 2f / 3f)
+                val minDx = thirdLinesX.minOf { abs(cx - it) }
+                val minDy = thirdLinesY.minOf { abs(cy - it) }
+
+                if (minDx > 0.12f && minDy > 0.12f && abs(cx - 0.5f) > 0.15f) {
+                    hints.add("Align on thirds")
+                } else {
+                    compositionScore += 15
                 }
             }
         } else {
@@ -246,7 +316,6 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
         }
 
         // 4. Blend LAION-Aesthetics V2 neural score (0.0-10.0 scale) into the composition score
-        // Scale 0-10 to bonus points (-10 to +15)
         val aestheticBonus = ((aestheticScore - 5.0f) * 3.0f).toInt()
         compositionScore = (compositionScore + aestheticBonus).coerceIn(0, 100)
 
@@ -264,7 +333,7 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
             isScorePrimed = isScorePrimed,
             targetIoU = iouWithTarget,
             isTargetLocked = isTargetLocked,
-            coachingHints = hints
+            coachingHints = hints.distinct()
         )
     }
 
