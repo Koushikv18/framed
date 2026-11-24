@@ -69,8 +69,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // CameraX 1.7.0
-    val cameraxVersion = "1.7.0"
+    // CameraX 1.5.3 (API 35 & AGP 8.7.3 compatible with native OUTPUT_FORMAT_RAW & RAW_JPEG)
+    val cameraxVersion = "1.5.3"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
