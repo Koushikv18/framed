@@ -1,33 +1,31 @@
-# Framed — Aesthetic Android Camera & Darkroom
+# Framed — Aesthetic Android Hybrid Edge/Cloud AI Camera & Darkroom
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Koushikv18/framed/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="100" alt="Framed Logo" />
   <br>
-  <em>A free, 100% offline, native Android camera and aesthetic photo-editing darkroom inspired by iOS "Framed 2.0".</em>
+  <em>A native Android camera and aesthetic photo-editing darkroom with 1:1 iOS "Framed 2.0" parity plus live self-upgrading AI.</em>
   <br>
-  <strong>Engineered for Android 15 & Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, 120Hz AMOLED)</strong>
+  <strong>Engineered for Android 17 (API 37) & Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, 120Hz AMOLED)</strong>
 </p>
 
 <p align="center">
-  <a href="https://temp.sh/KqVLm/framed-app-debug.apk"><img src="https://img.shields.io/badge/Download-Direct%20APK%20Mirror-00E599?style=for-the-badge&logo=android&logoColor=black" alt="Download APK" /></a>
   <a href="https://github.com/Koushikv18/framed/releases/tag/v2.0.0"><img src="https://img.shields.io/badge/Release-v2.0.0%20Tag-18181B?style=for-the-badge&logo=github" alt="GitHub Releases" /></a>
-  <img src="https://img.shields.io/badge/Platform-Android%2014%20%7C%2015-18181B?style=for-the-badge" alt="Platform" />
-  <img src="https://img.shields.io/badge/Privacy-100%25%20Offline-00E599?style=for-the-badge" alt="100% Offline" />
+  <img src="https://img.shields.io/badge/Platform-Android%2015%20%7C%2017%20(API%2037)-18181B?style=for-the-badge" alt="Platform" />
+  <img src="https://img.shields.io/badge/AI%20Engine-MediaPipe%20%2B%20TFLite%20%2B%20Gemini%20Flash-00E599?style=for-the-badge" alt="AI Engine" />
+  <img src="https://img.shields.io/badge/Toolchain-AGP%209.4.1%20%7C%20Gradle%209.6.0-18181B?style=for-the-badge" alt="Toolchain" />
 </p>
 
 ---
 
-## 📥 Download APK
+## 📥 APK Location
 
-### [👉 Click Here for Direct APK Download Mirror (v2.0.0)](https://temp.sh/KqVLm/framed-app-debug.apk)
-
-| Source | Target OS | File Size | Link |
+| Target Platform | Toolchain | Native Libraries | Output File |
 | :--- | :--- | :--- | :--- |
-| **Direct Mirror** | Android 14 – 15 (`minSdk 34`, `targetSdk 35`) | ~108 MB | [**Download APK Mirror**](https://temp.sh/KqVLm/framed-app-debug.apk) |
-| **GitHub Tag** | Source Code & Release Tag | — | [**View Tag v2.0.0**](https://github.com/Koushikv18/framed/releases/tag/v2.0.0) |
+| **Android 15 – 17** (`minSdk 35`, `compileSdk 37`, `targetSdk 37`) | Gradle `9.6.0` & AGP `9.4.1` | MediaPipe Tasks, TFLite GPU, CameraX 1.7.0 | `framed-app-debug.apk` (~167 MB) |
 
-> **Local Machine File**: The compiled APK is already present in this project at:
-> `framed-app-debug.apk` or `app/build/outputs/apk/debug/app-debug.apk`.
+> **Local Machine File**: The compiled APK is ready right inside this project at:
+> - **`framed-app-debug.apk`** (Workspace root)
+> - **`app/build/outputs/apk/debug/app-debug.apk`** (Build outputs)
 
 ---
 
