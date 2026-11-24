@@ -78,6 +78,16 @@ class MainActivity : ComponentActivity() {
         photoExporter = PhotoExporter(applicationContext)
         editRecipeStore = EditRecipeStore(applicationContext)
 
+        // Tier 3: Schedule background self-upgrading aesthetic trends & OTA model loop
+        val periodicSync = androidx.work.PeriodicWorkRequestBuilder<com.aesthetic.framed.domain.ai.SelfUpgradeWorker>(
+            12, java.util.concurrent.TimeUnit.HOURS
+        ).build()
+        androidx.work.WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+            "AestheticTrendsSync",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            periodicSync
+        )
+
         setContent {
             FramedTheme {
                 val coroutineScope = rememberCoroutineScope()

@@ -48,7 +48,7 @@ class CameraEngine(private val context: Context) {
     private var imageAnalysis: androidx.camera.core.ImageAnalysis? = null
     private var cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
-    val compositionAnalyzer = com.aesthetic.framed.domain.coach.CompositionAnalyzer()
+    val compositionAnalyzer = com.aesthetic.framed.domain.coach.CompositionAnalyzer(context)
 
     private val _exposureState = MutableStateFlow(ManualExposureState())
     val exposureState: StateFlow<ManualExposureState> = _exposureState.asStateFlow()

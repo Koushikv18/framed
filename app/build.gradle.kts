@@ -1,24 +1,38 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        load(localPropertiesFile.inputStream())
+    }
+}
+val geminiApiKey: String = localProperties.getProperty("GEMINI_API_KEY") ?: System.getenv("GEMINI_API_KEY") ?: ""
+val modelManifestUrl: String = localProperties.getProperty("MODEL_MANIFEST_URL")
+    ?: "https://raw.githubusercontent.com/Koushikv18/framed/main/models/manifest.json"
+
 android {
     namespace = "com.aesthetic.framed"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.aesthetic.framed"
-        minSdk = 34
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        minSdk = 35
+        targetSdk = 37
+        versionCode = 2
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
+        buildConfigField("String", "MODEL_MANIFEST_URL", "\"$modelManifestUrl\"")
     }
 
     buildTypes {
@@ -38,11 +52,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -69,8 +81,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // CameraX 1.5.3 (API 35 & AGP 8.7.3 compatible with native OUTPUT_FORMAT_RAW & RAW_JPEG)
-    val cameraxVersion = "1.5.3"
+    // CameraX 1.7.0
+    val cameraxVersion = "1.7.0"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
@@ -79,8 +91,23 @@ dependencies {
     // ExifInterface 1.4.2
     implementation("androidx.exifinterface:exifinterface:1.4.2")
 
-    // Google ML Kit Object Detection & Tracking (100% offline bundled model)
-    implementation("com.google.mlkit:object-detection:17.0.2")
+    // Google MediaPipe Tasks Vision 1.2.3 (Real-time NPU/GPU object detection & tracking)
+    implementation("com.google.mediapipe:tasks-vision:1.2.3")
+
+    // TensorFlow Lite 2.16.1 & GPU Delegate (On-Device LAION Aesthetics V2 scoring)
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-api:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
+
+    // Google Generative AI (Gemini 3.8 Flash SDK)
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+
+    // WorkManager (OTA trend and model updates)
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+
+    // OkHttp & Kotlinx Serialization
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

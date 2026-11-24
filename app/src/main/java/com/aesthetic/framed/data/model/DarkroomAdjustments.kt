@@ -53,6 +53,13 @@ enum class HslChannel(val title: String) {
     MAGENTA("MAGENTA")
 }
 
+data class CustomFilmPreset(
+    val id: String,
+    val title: String,
+    val description: String,
+    val adjustments: DarkroomAdjustments
+)
+
 data class DarkroomAdjustments(
     val preset: FilmPreset = FilmPreset.ORIGINAL,
 

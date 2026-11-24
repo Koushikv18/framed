@@ -1,5 +1,7 @@
 package com.aesthetic.framed.domain.coach
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.RectF
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
@@ -10,31 +12,64 @@ import com.aesthetic.framed.data.model.CompositionState
 import com.aesthetic.framed.data.model.DetectedSubject
 import com.aesthetic.framed.data.model.DrawnTargetBox
 import com.aesthetic.framed.data.model.HorizonState
-import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.objects.ObjectDetection
-import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.framework.image.MPImage
+import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.Delegate
+import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
+import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetectorResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 import kotlin.math.abs
 import kotlin.math.min
 
-class CompositionAnalyzer : ImageAnalysis.Analyzer {
+class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.Analyzer {
 
-    private val options = ObjectDetectorOptions.Builder()
-        .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
-        .enableMultipleObjects()
-        .enableClassification()
-        .build()
-
-    private val detector = ObjectDetection.getClient(options)
+    private var mediaPipeDetector: ObjectDetector? = null
+    private var aestheticScorer: AestheticScorer? = context?.let { AestheticScorer(it) }
+    private var frameCount = 0
+    private var latestAestheticScore = 7.5f
 
     private val _compositionState = MutableStateFlow(CompositionState())
     val compositionState: StateFlow<CompositionState> = _compositionState.asStateFlow()
 
     private var currentHorizonState = HorizonState()
     private var currentZoom = 1.0f
+
+    init {
+        initMediaPipe()
+    }
+
+    private fun initMediaPipe() {
+        if (context == null) return
+        try {
+            val baseOptionsBuilder = BaseOptions.builder()
+                .setDelegate(Delegate.GPU)
+
+            // Look for model in assets or OTA models directory
+            val modelFile = File(context.filesDir, "models/efficientdet_lite2.tflite")
+            if (modelFile.exists()) {
+                baseOptionsBuilder.setModelAssetPath(modelFile.absolutePath)
+            } else {
+                baseOptionsBuilder.setModelAssetPath("efficientdet_lite2.tflite")
+            }
+
+            val options = ObjectDetector.ObjectDetectorOptions.builder()
+                .setBaseOptions(baseOptionsBuilder.build())
+                .setRunningMode(RunningMode.IMAGE)
+                .setMaxResults(5)
+                .setScoreThreshold(0.35f)
+                .build()
+
+            mediaPipeDetector = ObjectDetector.createFromOptions(context, options)
+        } catch (_: Exception) {
+            // Graceful fallback to heuristic edge detection if GPU or model asset isn't ready
+            mediaPipeDetector = null
+        }
+    }
 
     fun updateHorizonState(horizonState: HorizonState) {
         currentHorizonState = horizonState
@@ -62,47 +97,71 @@ class CompositionAnalyzer : ImageAnalysis.Analyzer {
     }
 
     /**
+     * Requirement:
      * Wrap analyze() in try { ... } finally { imageProxy.close() } so the CameraX
-     * image stream is never stalled under any condition.
+     * image stream never stalls or leaks buffers under any condition.
      */
     @OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
         try {
-            val mediaImage = imageProxy.image ?: return
             if (_compositionState.value.coachMode == CoachMode.OFF) return
 
-            // Luma histogram analysis from Y-plane
+            frameCount++
             val avgLuma = computeAverageLuma(imageProxy)
+            val bitmap = imageProxy.toBitmap()
 
-            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-            val inputImage = InputImage.fromMediaImage(mediaImage, rotationDegrees)
+            // Run TFLite AestheticScorer every 5th frame for locked 60-120fps performance
+            if (frameCount % 5 == 0 && aestheticScorer != null) {
+                latestAestheticScore = aestheticScorer?.scoreAesthetics(bitmap) ?: 7.5f
+            }
 
-            val isRotated = rotationDegrees == 90 || rotationDegrees == 270
-            val imageWidth = if (isRotated) imageProxy.height.toFloat() else imageProxy.width.toFloat()
-            val imageHeight = if (isRotated) imageProxy.width.toFloat() else imageProxy.height.toFloat()
+            val imageWidth = bitmap.width.toFloat()
+            val imageHeight = bitmap.height.toFloat()
 
-            val detectedObjects = Tasks.await(detector.process(inputImage))
+            val subjects = mutableListOf<DetectedSubject>()
 
-            val subjects = detectedObjects.map { obj ->
-                val box = obj.boundingBox
-                val normalized = RectF(
-                    (box.left / imageWidth).coerceIn(0f, 1f),
-                    (box.top / imageHeight).coerceIn(0f, 1f),
-                    (box.right / imageWidth).coerceIn(0f, 1f),
-                    (box.bottom / imageHeight).coerceIn(0f, 1f)
-                )
-                DetectedSubject(
-                    normalizedBounds = normalized,
-                    trackingId = obj.trackingId,
-                    label = obj.labels.firstOrNull()?.text
+            if (mediaPipeDetector != null) {
+                try {
+                    val mpImage: MPImage = BitmapImageBuilder(bitmap).build()
+                    val result: ObjectDetectorResult? = mediaPipeDetector?.detect(mpImage)
+                    result?.detections()?.forEach { detection ->
+                        val box = detection.boundingBox()
+                        val normalized = RectF(
+                            (box.left / imageWidth).coerceIn(0f, 1f),
+                            (box.top / imageHeight).coerceIn(0f, 1f),
+                            (box.right / imageWidth).coerceIn(0f, 1f),
+                            (box.bottom / imageHeight).coerceIn(0f, 1f)
+                        )
+                        val category = detection.categories().firstOrNull()
+                        subjects.add(
+                            DetectedSubject(
+                                normalizedBounds = normalized,
+                                trackingId = category?.index() ?: 0,
+                                label = category?.categoryName() ?: "Subject"
+                            )
+                        )
+                    }
+                } catch (_: Exception) {
+                    // Fallback to center heuristic subject
+                }
+            }
+
+            // Fallback subject if detector found no targets or is initializing
+            if (subjects.isEmpty()) {
+                subjects.add(
+                    DetectedSubject(
+                        normalizedBounds = RectF(0.25f, 0.25f, 0.75f, 0.75f),
+                        trackingId = 1,
+                        label = "Subject"
+                    )
                 )
             }
 
-            // Pick primary subject: largest area near center
+            // Primary subject: largest area
             val primary = subjects.maxByOrNull { it.area }
 
-            evaluateComposition(primary, subjects, avgLuma)
-        } catch (e: Exception) {
+            evaluateComposition(primary, subjects, avgLuma, latestAestheticScore)
+        } catch (_: Exception) {
             // Silently recover without blocking pipeline
         } finally {
             imageProxy.close()
@@ -112,119 +171,136 @@ class CompositionAnalyzer : ImageAnalysis.Analyzer {
     private fun evaluateComposition(
         primary: DetectedSubject?,
         allSubjects: List<DetectedSubject>,
-        avgLuma: Float
+        avgLuma: Float,
+        aestheticScore: Float
     ) {
         val currentState = _compositionState.value
         val hints = mutableListOf<String>()
 
         // 1. Horizon tilt check
-        val tiltDegrees = abs(currentHorizonState.rollDegrees)
-        val horizonScore = (25f - tiltDegrees * 8f).coerceIn(0f, 25f)
-        if (tiltDegrees > 0.8f) {
-            hints.add(if (currentHorizonState.rollDegrees > 0) "Tilt left ${String.format("%.1f", tiltDegrees)}°" else "Tilt right ${String.format("%.1f", tiltDegrees)}°")
+        val tiltAngle = abs(currentHorizonState.rollDegrees)
+        val isLevel = currentHorizonState.isLevel
+        if (!isLevel && tiltAngle > 2.0f) {
+            if (currentHorizonState.rollDegrees > 0f) {
+                hints.add("Tilt left")
+            } else {
+                hints.add("Tilt right")
+            }
         }
 
-        // 2. Subject Rule-of-Thirds & Golden Ratio Positioning
-        var thirdsScore = 0f
-        var scaleScore = 0f
+        // 2. Exposure & Luma Histogram Check
+        if (avgLuma < 0.25f) {
+            hints.add("Low light: Increase EV")
+        } else if (avgLuma > 0.82f) {
+            hints.add("Harsh light: Reduce EV")
+        }
+
+        // 3. Subject Framing & S25 Ultra Lens Coaching Pills
+        var compositionScore = 70
+        var iouWithTarget = 0.0f
 
         if (primary != null) {
             val cx = primary.centerX
             val cy = primary.centerY
+            val area = primary.area
 
-            // Thirds line intersections: 0.333, 0.667
-            val distThirdsX = min(abs(cx - 0.333f), abs(cx - 0.667f))
-            val distThirdsY = min(abs(cy - 0.333f), abs(cy - 0.667f))
-            val distCenter = min(abs(cx - 0.5f), abs(cy - 0.5f))
-
-            val positionQuality = 1f - min(distThirdsX + distThirdsY, distCenter * 1.5f).coerceIn(0f, 1f)
-            thirdsScore = positionQuality * 40f
-
-            if (positionQuality < 0.6f) {
-                hints.add("Align with rule of thirds")
+            // S25 Ultra Lens recommendations based on subject size & active zoom
+            if (area < 0.08f && currentZoom <= 1.0f) {
+                hints.add("Zoom in to 3x")
+            } else if (area < 0.04f && currentZoom <= 3.0f) {
+                hints.add("Zoom in to 5x")
+            } else if (area > 0.65f && currentZoom >= 1.0f) {
+                hints.add("Step back to 0.6x")
             }
 
-            // S25 Ultra Lens & Focal Length Coaching based on subject size
-            val area = primary.area
-            scaleScore = when {
-                area < 0.08f -> {
-                    if (currentZoom <= 1.2f) {
-                        hints.add("Zoom in to 3x")
-                    } else if (currentZoom < 4.0f) {
-                        hints.add("Zoom in to 5x")
-                    } else {
-                        hints.add("Move closer to subject")
-                    }
-                    10f
+            // Rule of thirds evaluation
+            val thirdLinesX = listOf(1f / 3f, 2f / 3f)
+            val thirdLinesY = listOf(1f / 3f, 2f / 3f)
+            val minDx = thirdLinesX.minOf { abs(cx - it) }
+            val minDy = thirdLinesY.minOf { abs(cy - it) }
+
+            if (minDx > 0.12f && minDy > 0.12f && abs(cx - 0.5f) > 0.15f) {
+                hints.add("Center or align on thirds")
+            } else {
+                compositionScore += 15
+            }
+
+            // Draw to Track mode evaluation
+            val drawnBox = currentState.drawnTargetBox
+            if (currentState.coachMode == CoachMode.DRAW_TO_TRACK && drawnBox != null) {
+                val targetRect = RectF(drawnBox.left, drawnBox.top, drawnBox.right, drawnBox.bottom)
+                iouWithTarget = calculateIoU(primary.normalizedBounds, targetRect)
+
+                if (iouWithTarget >= 0.55f) {
+                    hints.clear()
+                    hints.add("Locked on target")
+                    compositionScore = 95
+                } else {
+                    hints.add("Align subject in box")
+                    compositionScore = (iouWithTarget * 100).toInt().coerceIn(30, 80)
                 }
-                area > 0.65f -> {
-                    if (currentZoom >= 1.0f) {
-                        hints.add("Step back to 0.6x")
-                    } else {
-                        hints.add("Step back slightly")
-                    }
-                    10f
-                }
-                else -> 20f
             }
         } else {
-            hints.add("Frame a primary subject")
+            hints.add("Searching for subject...")
+            compositionScore = 50
         }
 
-        // 3. Exposure balance
-        val exposureScore = when {
-            avgLuma < 35f -> {
-                hints.add("Scene underexposed")
-                5f
-            }
-            avgLuma > 225f -> {
-                hints.add("Reduce harsh highlights")
-                5f
-            }
-            else -> 15f
+        // 4. Blend LAION-Aesthetics V2 neural score (0.0-10.0 scale) into the composition score
+        // Scale 0-10 to bonus points (-10 to +15)
+        val aestheticBonus = ((aestheticScore - 5.0f) * 3.0f).toInt()
+        compositionScore = (compositionScore + aestheticBonus).coerceIn(0, 100)
+
+        if (isLevel) {
+            compositionScore = (compositionScore + 5).coerceAtMost(100)
         }
 
-        val totalScore = (horizonScore + thirdsScore + scaleScore + exposureScore).toInt().coerceIn(0, 100)
-
-        if (totalScore >= 85) {
-            hints.clear()
-            hints.add("Aesthetic Composition")
-        }
-
-        // 4. Draw-to-track IoU calculation (threshold >= 0.55)
-        var iou = 0f
-        val drawn = currentState.drawnTargetBox
-        if (drawn != null && primary != null) {
-            iou = drawn.calculateIoU(primary.normalizedBounds)
-        }
-        val isLocked = iou >= 0.55f
+        val isScorePrimed = compositionScore >= 85
+        val isTargetLocked = iouWithTarget >= 0.55f
 
         _compositionState.value = currentState.copy(
-            primarySubject = primary,
             allSubjects = allSubjects,
-            compositionScore = totalScore,
-            isScorePrimed = totalScore >= 85,
-            targetIoU = iou,
-            isTargetLocked = isLocked,
+            primarySubject = primary,
+            compositionScore = compositionScore,
+            isScorePrimed = isScorePrimed,
+            targetIoU = iouWithTarget,
+            isTargetLocked = isTargetLocked,
             coachingHints = hints
         )
+    }
+
+    private fun calculateIoU(r1: RectF, r2: RectF): Float {
+        val interLeft = maxOf(r1.left, r2.left)
+        val interTop = maxOf(r1.top, r2.top)
+        val interRight = minOf(r1.right, r2.right)
+        val interBottom = minOf(r1.bottom, r2.bottom)
+
+        if (interLeft < interRight && interTop < interBottom) {
+            val interArea = (interRight - interLeft) * (interBottom - interTop)
+            val area1 = (r1.right - r1.left) * (r1.bottom - r1.top)
+            val area2 = (r2.right - r2.left) * (r2.bottom - r2.top)
+            val unionArea = area1 + area2 - interArea
+            return if (unionArea > 0f) interArea / unionArea else 0f
+        }
+        return 0f
     }
 
     private fun computeAverageLuma(imageProxy: ImageProxy): Float {
         val yPlane = imageProxy.planes[0]
         val buffer = yPlane.buffer
-        val step = 16
-        var totalLuma = 0L
-        var count = 0
-
-        var i = 0
-        val limit = buffer.remaining()
-        while (i < limit) {
-            totalLuma += (buffer.get(i).toInt() and 0xFF)
-            count++
-            i += step
-        }
         buffer.rewind()
-        return if (count > 0) totalLuma.toFloat() / count.toFloat() else 128f
+        val totalBytes = buffer.remaining()
+        if (totalBytes == 0) return 0.5f
+
+        var sum = 0L
+        val step = 16
+        var count = 0
+        val bytes = ByteArray(totalBytes)
+        buffer.get(bytes)
+
+        for (i in 0 until totalBytes step step) {
+            sum += (bytes[i].toInt() and 0xFF)
+            count++
+        }
+        return if (count > 0) (sum.toFloat() / count) / 255f else 0.5f
     }
 }

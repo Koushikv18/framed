@@ -149,24 +149,51 @@ fun FramedLibraryScreen(
                     letterSpacing = 1.sp
                 )
 
-                // Import from Gallery Button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(StudioSurface)
-                        .border(1.dp, StudioBorder, RoundedCornerShape(10.dp))
-                        .clickable {
-                            photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        }
-                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "IMPORT",
-                        color = EmeraldLevel,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
+                    // Sync Latest Aesthetics Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(StudioSurface)
+                            .border(1.dp, StudioBorder, RoundedCornerShape(10.dp))
+                            .clickable {
+                                val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.aesthetic.framed.domain.ai.SelfUpgradeWorker>().build()
+                                androidx.work.WorkManager.getInstance(context).enqueue(workRequest)
+                                android.widget.Toast.makeText(context, "Syncing latest aesthetic trends...", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            text = "SYNC AI",
+                            color = StudioTextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    // Import from Gallery Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(StudioSurface)
+                            .border(1.dp, StudioBorder, RoundedCornerShape(10.dp))
+                            .clickable {
+                                photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            }
+                            .padding(horizontal = 12.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            text = "IMPORT",
+                            color = EmeraldLevel,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
                 }
             }
 
