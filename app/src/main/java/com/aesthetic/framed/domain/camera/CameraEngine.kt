@@ -6,6 +6,7 @@ import android.hardware.camera2.CaptureRequest
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.CaptureRequestOptions
@@ -36,6 +37,7 @@ import java.util.concurrent.Executors
 class CameraEngine(private val context: Context) {
 
     companion object {
+        private const val TAG = "CameraEngine"
         val OUTPUT_FORMAT_JPEG = ImageCapture.OUTPUT_FORMAT_JPEG
         val OUTPUT_FORMAT_RAW = ImageCapture.OUTPUT_FORMAT_RAW
         val OUTPUT_FORMAT_RAW_JPEG = ImageCapture.OUTPUT_FORMAT_RAW_JPEG
@@ -95,7 +97,8 @@ class CameraEngine(private val context: Context) {
             _exposureState.value = _exposureState.value.copy(
                 isRawSupported = hasRaw
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read camera RAW capabilities", e)
             _exposureState.value = _exposureState.value.copy(
                 isRawSupported = false
             )
@@ -187,7 +190,8 @@ class CameraEngine(private val context: Context) {
 
         try {
             captureBuilder.setOutputFormat(captureFormat)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to set capture format: $captureFormat, falling back to JPEG", e)
             captureBuilder.setOutputFormat(OUTPUT_FORMAT_JPEG)
         }
 
@@ -296,7 +300,9 @@ class CameraEngine(private val context: Context) {
                     .build()
                 camera2Control.setCaptureRequestOptions(fallbackOptions)
                 _exposureState.value = _exposureState.value.copy(isManualMode = false)
-            } catch (_: Exception) {}
+            } catch (fallbackEx: Exception) {
+                Log.e(TAG, "Failed to reset camera to auto exposure", fallbackEx)
+            }
         }
     }
 
@@ -380,7 +386,9 @@ class CameraEngine(private val context: Context) {
                                 context.contentResolver.openInputStream(savedUri)?.use { input ->
                                     FileOutputStream(privateJpegFile).use { output -> input.copyTo(output) }
                                 }
-                            } catch (_: Exception) {}
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to copy original dual RAW JPEG to private storage", e)
+                            }
                         }
                         val finalUri = savedUri ?: Uri.fromFile(privateJpegFile)
                         ContextCompat.getMainExecutor(context).execute {
@@ -414,7 +422,9 @@ class CameraEngine(private val context: Context) {
                                 context.contentResolver.openInputStream(savedUri)?.use { input ->
                                     FileOutputStream(privateJpegFile).use { output -> input.copyTo(output) }
                                 }
-                            } catch (_: Exception) {}
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to copy original dual RAW JPEG to private storage", e)
+                            }
                         }
                         val finalUri = savedUri ?: Uri.fromFile(privateJpegFile)
                         ContextCompat.getMainExecutor(context).execute {
@@ -436,7 +446,9 @@ class CameraEngine(private val context: Context) {
         // Do not permanently kill cameraExecutor during normal navigation
         try {
             cameraProvider?.unbindAll()
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unbind camera provider on release", e)
+        }
     }
 
     fun destroy() {

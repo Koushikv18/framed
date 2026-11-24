@@ -1,6 +1,7 @@
 package com.aesthetic.framed.domain.recipe
 
 import android.content.Context
+import android.util.Log
 import com.aesthetic.framed.data.model.DarkroomAdjustments
 import com.aesthetic.framed.data.model.ExportOptions
 import com.aesthetic.framed.data.model.FilmPreset
@@ -208,6 +209,10 @@ data class EditRecipe(
 
 class EditRecipeStore(private val context: Context) {
 
+    companion object {
+        private const val TAG = "EditRecipeStore"
+    }
+
     private val recipeDir: File
         get() = File(context.filesDir, "recipes").apply {
             if (!exists()) mkdirs()
@@ -242,6 +247,7 @@ class EditRecipeStore(private val context: Context) {
             val file = File(recipeDir, "$id.json")
             if (file.exists()) file.delete() else false
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to delete recipe: $id", e)
             false
         }
     }
@@ -252,13 +258,15 @@ class EditRecipeStore(private val context: Context) {
                 ?.mapNotNull { file ->
                     try {
                         EditRecipe.fromJson(JSONObject(file.readText()))
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to parse recipe file: ${file.name}", e)
                         null
                     }
                 }
                 ?.sortedByDescending { it.timestamp }
                 ?: emptyList()
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to list recipe files", e)
             emptyList()
         }
     }

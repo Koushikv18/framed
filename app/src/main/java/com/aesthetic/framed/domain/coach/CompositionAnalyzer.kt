@@ -3,11 +3,13 @@ package com.aesthetic.framed.domain.coach
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.aesthetic.framed.data.model.CoachMode
+import com.aesthetic.framed.data.model.CoachStatus
 import com.aesthetic.framed.data.model.CompositionState
 import com.aesthetic.framed.data.model.DetectedSubject
 import com.aesthetic.framed.data.model.DrawnTargetBox
@@ -24,14 +26,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import kotlin.math.abs
-import kotlin.math.min
 
 class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.Analyzer {
 
+    companion object {
+        private const val TAG = "CompositionAnalyzer"
+    }
+
     private var mediaPipeDetector: ObjectDetector? = null
-    private var aestheticScorer: AestheticScorer? = context?.let { AestheticScorer(it) }
+    private var activeCoachStatus = CoachStatus.HEURISTIC
     private var frameCount = 0
-    private var latestAestheticScore = 7.5f
 
     private val _compositionState = MutableStateFlow(CompositionState())
     val compositionState: StateFlow<CompositionState> = _compositionState.asStateFlow()
@@ -44,12 +48,15 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
     }
 
     private fun initMediaPipe() {
-        if (context == null) return
+        if (context == null) {
+            activeCoachStatus = CoachStatus.UNAVAILABLE
+            return
+        }
         try {
             val baseOptionsBuilder = BaseOptions.builder()
                 .setDelegate(Delegate.GPU)
 
-            // Look for model in assets or OTA models directory
+            // Look for bundled model in assets or private models directory
             val modelFile = File(context.filesDir, "models/efficientdet_lite2.tflite")
             if (modelFile.exists()) {
                 baseOptionsBuilder.setModelAssetPath(modelFile.absolutePath)
@@ -65,9 +72,12 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
                 .build()
 
             mediaPipeDetector = ObjectDetector.createFromOptions(context, options)
-        } catch (_: Exception) {
-            // Graceful fallback to heuristic edge detection if GPU or model asset isn't ready
+            activeCoachStatus = CoachStatus.BUNDLED
+            Log.i(TAG, "MediaPipe ObjectDetector initialized successfully with GPU delegate.")
+        } catch (e: Exception) {
+            Log.e(TAG, "MediaPipe initialization failed; falling back to heuristic detector", e)
             mediaPipeDetector = null
+            activeCoachStatus = CoachStatus.HEURISTIC
         }
     }
 
@@ -131,7 +141,6 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
     }
 
     /**
-     * Requirement:
      * Wrap analyze() in try { ... } finally { imageProxy.close() } so the CameraX
      * image stream never stalls or leaks buffers under any condition.
      */
@@ -143,11 +152,6 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
             frameCount++
             val avgLuma = computeAverageLuma(imageProxy)
             val bitmap = imageProxy.toBitmap()
-
-            // Run TFLite AestheticScorer every 5th frame for locked 60-120fps performance
-            if (frameCount % 5 == 0 && aestheticScorer != null) {
-                latestAestheticScore = aestheticScorer?.scoreAesthetics(bitmap) ?: 7.5f
-            }
 
             val imageWidth = bitmap.width.toFloat()
             val imageHeight = bitmap.height.toFloat()
@@ -175,8 +179,8 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
                             )
                         )
                     }
-                } catch (_: Exception) {
-                    // Fallback to center heuristic subject
+                } catch (e: Exception) {
+                    Log.w(TAG, "MediaPipe inference failed on frame, falling back to heuristic subject", e)
                 }
             }
 
@@ -194,9 +198,10 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
             // Primary subject: largest area
             val primary = subjects.maxByOrNull { it.area }
 
-            evaluateComposition(primary, subjects, avgLuma, latestAestheticScore)
-        } catch (_: Exception) {
-            // Silently recover without blocking pipeline
+            evaluateComposition(primary, subjects, avgLuma)
+        } catch (e: Exception) {
+            Log.e(TAG, "Unhandled error during composition analysis", e)
+            _compositionState.value = _compositionState.value.copy(coachStatus = CoachStatus.UNAVAILABLE)
         } finally {
             imageProxy.close()
         }
@@ -205,8 +210,7 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
     private fun evaluateComposition(
         primary: DetectedSubject?,
         allSubjects: List<DetectedSubject>,
-        avgLuma: Float,
-        aestheticScore: Float
+        avgLuma: Float
     ) {
         val currentState = _compositionState.value
         val hints = mutableListOf<String>()
@@ -315,18 +319,19 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
             compositionScore = 50
         }
 
-        // 4. Blend LAION-Aesthetics V2 neural score (0.0-10.0 scale) into the composition score
-        val aestheticBonus = ((aestheticScore - 5.0f) * 3.0f).toInt()
-        compositionScore = (compositionScore + aestheticBonus).coerceIn(0, 100)
-
+        // 4. Luma balance & Horizon bonus
+        if (avgLuma in 0.30f..0.70f) {
+            compositionScore += 5
+        }
         if (isLevel) {
-            compositionScore = (compositionScore + 5).coerceAtMost(100)
+            compositionScore = (compositionScore + 10).coerceAtMost(100)
         }
 
         val isScorePrimed = compositionScore >= 85
         val isTargetLocked = iouWithTarget >= 0.55f
 
         _compositionState.value = currentState.copy(
+            coachStatus = activeCoachStatus,
             allSubjects = allSubjects,
             primarySubject = primary,
             compositionScore = compositionScore,

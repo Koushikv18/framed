@@ -49,7 +49,7 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
+    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
@@ -78,11 +78,6 @@ dependencies {
 
     // Google MediaPipe Tasks Vision 1.2.3 (Real-time NPU/GPU object detection & tracking)
     implementation("com.google.mediapipe:tasks-vision:1.2.3")
-
-    // TensorFlow Lite 2.16.1 & GPU Delegate
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    implementation("org.tensorflow:tensorflow-lite-api:2.16.1")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

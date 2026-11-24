@@ -51,8 +51,15 @@ data class DrawnTargetBox(
     }
 }
 
+enum class CoachStatus(val title: String) {
+    BUNDLED("AI ACTIVE"),
+    HEURISTIC("HEURISTIC"),
+    UNAVAILABLE("COACH UNAVAILABLE")
+}
+
 data class CompositionState(
     val coachMode: CoachMode = CoachMode.OFF,
+    val coachStatus: CoachStatus = CoachStatus.BUNDLED,
     val primarySubject: DetectedSubject? = null,
     val allSubjects: List<DetectedSubject> = emptyList(),
     val drawnTargetBox: DrawnTargetBox? = null,

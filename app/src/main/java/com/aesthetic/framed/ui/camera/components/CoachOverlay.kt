@@ -283,6 +283,28 @@ fun CoachOverlay(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Coach / AI Status Indicator
+                val statusColor = when (state.coachStatus) {
+                    com.aesthetic.framed.data.model.CoachStatus.BUNDLED -> EmeraldLevel
+                    com.aesthetic.framed.data.model.CoachStatus.HEURISTIC -> com.aesthetic.framed.ui.theme.AmberRetro
+                    com.aesthetic.framed.data.model.CoachStatus.UNAVAILABLE -> com.aesthetic.framed.ui.theme.AlertRed
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(StudioDark.copy(alpha = 0.90f))
+                        .border(1.dp, statusColor.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = state.coachStatus.title,
+                        color = statusColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
                 if (state.coachMode == CoachMode.AUTO_FRAME) {
                     Row(
                         modifier = Modifier

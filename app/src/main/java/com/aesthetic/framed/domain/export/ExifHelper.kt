@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.aesthetic.framed.data.model.PhotoMetadata
 import java.io.File
@@ -15,6 +16,8 @@ import java.util.Date
 import java.util.Locale
 
 object ExifHelper {
+
+    private const val TAG = "ExifHelper"
 
     /**
      * Resolves complete android.graphics.Matrix supporting all 8 EXIF orientation constants:
@@ -42,7 +45,9 @@ object ExifHelper {
                     else -> {}
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read orientation matrix", e)
+        }
         return matrix
     }
 
@@ -114,7 +119,8 @@ object ExifHelper {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 extractMetadataFromStream(stream, activeZoomRatio)
             } ?: createDefaultMetadata(activeZoomRatio)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract metadata from URI: $uri", e)
             createDefaultMetadata(activeZoomRatio)
         }
     }
@@ -180,7 +186,8 @@ object ExifHelper {
             val month = cal.get(java.util.Calendar.MONTH) + 1
             val day = cal.get(java.util.Calendar.DAY_OF_MONTH)
             String.format(Locale.US, "'%02d %02d %02d", year, month, day)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse LCD date: $rawDate", e)
             "'98 11 24"
         }
     }
