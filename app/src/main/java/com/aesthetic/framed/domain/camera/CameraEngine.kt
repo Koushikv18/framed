@@ -351,7 +351,7 @@ class CameraEngine(private val context: Context) {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "FRAMED_${timeStamp}.jpg")
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/FramedClone")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Framed")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }

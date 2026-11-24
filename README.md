@@ -70,7 +70,7 @@ adb shell am start -n com.aesthetic.framed/.MainActivity
 - **Hardware Level**: Real-time roll/pitch horizon leveling using `SensorManager.TYPE_ROTATION_VECTOR` with visual angle badge and emerald level indicator.
 
 ### 🎯 On-Device Composition Coach
-- **100% Offline AI Model**: Powered by Google ML Kit Object Detection & Tracking bundled model (zero network queries).
+- **100% Offline AI Model**: Powered by Google MediaPipe Tasks Vision (`efficientdet_lite2.tflite`) bundled on-device model (zero network queries).
 - **Auto Frame Mode**: Real-time analysis of subject framing, rule of thirds, horizon tilt, and scene luminance. Live smart hints (*"Center on thirds"*, *"Zoom in to 3x"*, *"Step back to 0.6x"*, *"Hold steady"*).
 - **Draw-to-Track Mode**: Interactive viewfinder bounding box with 4-corner drag handles (`RESIZE_TL`, `RESIZE_TR`, `RESIZE_BL`, `RESIZE_BR`) and center repositioning. Shutter highlights emerald green when alignment meets the IoU $\ge 0.55$ threshold.
 
@@ -96,7 +96,7 @@ adb shell am start -n com.aesthetic.framed/.MainActivity
 - `android.permission.INTERNET` is **completely omitted** from `AndroidManifest.xml`.
 - Zero third-party analytics, telemetry, or network SDKs.
 - Zero subscriptions or paid APIs.
-- Media saved locally to `DCIM/FramedClone` via scoped MediaStore APIs.
+- Media saved locally to `DCIM/Framed` via scoped MediaStore APIs.
 
 ---
 

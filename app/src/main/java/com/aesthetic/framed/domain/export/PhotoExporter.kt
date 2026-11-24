@@ -76,13 +76,13 @@ class PhotoExporter(private val context: Context) {
                 }
             }
 
-            // 5. Save to MediaStore (DCIM/FramedClone)
+            // 5. Save to MediaStore (DCIM/Framed)
             val fileName = "FRAMED_EDIT_$timeStamp.jpg"
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
                 put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/FramedClone")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Framed")
                     put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
             }

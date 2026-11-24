@@ -284,7 +284,7 @@ class MainActivity : ComponentActivity() {
                                                         )
                                                         editRecipeStore.saveRecipe(updated)
 
-                                                        Toast.makeText(this@MainActivity, "Saved to DCIM/FramedClone", Toast.LENGTH_LONG).show()
+                                                        Toast.makeText(this@MainActivity, "Saved to DCIM/Framed", Toast.LENGTH_LONG).show()
                                                         editingBitmap?.recycle()
                                                         editingBitmap = null
                                                         currentScreen = AppScreen.LIBRARY
