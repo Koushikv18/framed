@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Koushikv18/framed/releases/latest"><img src="https://img.shields.io/badge/Download-Latest%20APK-00E599?style=for-the-badge&logo=android&logoColor=black" alt="Download APK" /></a>
-  <a href="https://github.com/Koushikv18/framed/releases"><img src="https://img.shields.io/badge/Releases-v2.0.0-18181B?style=for-the-badge&logo=github" alt="GitHub Releases" /></a>
+  <a href="https://temp.sh/KqVLm/framed-app-debug.apk"><img src="https://img.shields.io/badge/Download-Direct%20APK%20Mirror-00E599?style=for-the-badge&logo=android&logoColor=black" alt="Download APK" /></a>
+  <a href="https://github.com/Koushikv18/framed/releases/tag/v2.0.0"><img src="https://img.shields.io/badge/Release-v2.0.0%20Tag-18181B?style=for-the-badge&logo=github" alt="GitHub Releases" /></a>
   <img src="https://img.shields.io/badge/Platform-Android%2014%20%7C%2015-18181B?style=for-the-badge" alt="Platform" />
   <img src="https://img.shields.io/badge/Privacy-100%25%20Offline-00E599?style=for-the-badge" alt="100% Offline" />
 </p>
@@ -19,14 +19,15 @@
 
 ## 📥 Download APK
 
-### [👉 Click Here to Download Latest APK (v2.0.0)](https://github.com/Koushikv18/framed/releases/latest/download/app-debug.apk)
+### [👉 Click Here for Direct APK Download Mirror (v2.0.0)](https://temp.sh/KqVLm/framed-app-debug.apk)
 
-| Version | Target OS | File Size | Release Link |
+| Source | Target OS | File Size | Link |
 | :--- | :--- | :--- | :--- |
-| **v2.0.0 (Debug)** | Android 14 – 15 (`minSdk 34`, `targetSdk 35`) | ~108 MB | [Download from Releases](https://github.com/Koushikv18/framed/releases/latest) |
+| **Direct Mirror** | Android 14 – 15 (`minSdk 34`, `targetSdk 35`) | ~108 MB | [**Download APK Mirror**](https://temp.sh/KqVLm/framed-app-debug.apk) |
+| **GitHub Tag** | Source Code & Release Tag | — | [**View Tag v2.0.0**](https://github.com/Koushikv18/framed/releases/tag/v2.0.0) |
 
-> **Local Build Location**: If you have cloned and built this repository locally on your machine, your ready-to-install APK is located at:
-> `app/build/outputs/apk/debug/app-debug.apk` or `framed-app-debug.apk`.
+> **Local Machine File**: The compiled APK is already present in this project at:
+> `framed-app-debug.apk` or `app/build/outputs/apk/debug/app-debug.apk`.
 
 ---
 
