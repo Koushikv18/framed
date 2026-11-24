@@ -35,6 +35,9 @@ android {
                     storePassword = "android"
                     keyAlias = "androiddebugkey"
                     keyPassword = "android"
+                } else {
+                    // Fallback: inherit debug signing config so CI or local builds without a release keystore succeed
+                    initWith(getByName("debug"))
                 }
             }
         }
