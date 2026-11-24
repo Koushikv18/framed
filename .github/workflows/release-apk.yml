@@ -1,0 +1,63 @@
+name: Build & Release APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant Execute Permission to Gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Prepare APK Artifact
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Framed.apk
+
+      - name: Force Update 'latest' Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f latest
+          git push origin -f latest
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: latest
+          name: "Framed Latest Release"
+          body: |
+            ## Framed Android (Latest Release)
+
+            - Automated continuous release built from `main`.
+            - Direct download: [Framed.apk](https://github.com/Koushikv18/framed/releases/download/latest/Framed.apk)
+            - 1:1 iOS "Framed 2.0" parity with hybrid online/edge AI photography for Samsung Galaxy S25 Ultra.
+          files: Framed.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

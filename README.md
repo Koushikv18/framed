@@ -9,7 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Koushikv18/framed/releases/tag/v2.0.0"><img src="https://img.shields.io/badge/Release-v2.0.0%20Tag-18181B?style=for-the-badge&logo=github" alt="GitHub Releases" /></a>
+  <a href="https://github.com/Koushikv18/framed/releases/download/latest/Framed.apk"><img src="https://img.shields.io/badge/Download-Latest%20APK-00E599?style=for-the-badge&logo=android&logoColor=black" alt="Download APK" /></a>
+  <a href="https://github.com/Koushikv18/framed/releases/tag/latest"><img src="https://img.shields.io/badge/Release-Latest%20Build-18181B?style=for-the-badge&logo=github" alt="GitHub Releases" /></a>
   <img src="https://img.shields.io/badge/Platform-Android%2015%20%7C%2017%20(API%2037)-18181B?style=for-the-badge" alt="Platform" />
   <img src="https://img.shields.io/badge/AI%20Engine-MediaPipe%20%2B%20TFLite%20%2B%20Gemini%20Flash-00E599?style=for-the-badge" alt="AI Engine" />
   <img src="https://img.shields.io/badge/Toolchain-AGP%209.4.1%20%7C%20Gradle%209.6.0-18181B?style=for-the-badge" alt="Toolchain" />
@@ -17,14 +18,17 @@
 
 ---
 
-## 📥 APK Location
+## 📥 Download APK
 
-| Target Platform | Toolchain | Native Libraries | Output File |
+### [👉 Click Here to Download Latest APK (Framed.apk)](https://github.com/Koushikv18/framed/releases/download/latest/Framed.apk)
+
+| Asset | Target OS | Build Type | Download Link |
 | :--- | :--- | :--- | :--- |
-| **Android 15 – 17** (`minSdk 35`, `compileSdk 37`, `targetSdk 37`) | Gradle `9.6.0` & AGP `9.4.1` | MediaPipe Tasks, TFLite GPU, CameraX 1.7.0 | `framed-app-debug.apk` (~167 MB) |
+| **`Framed.apk`** | Android 15 – 17 (`minSdk 35`, `compileSdk 37`, `targetSdk 37`) | Automated CI/CD (`main`) | [**Download Framed.apk**](https://github.com/Koushikv18/framed/releases/download/latest/Framed.apk) |
+| **Release Details** | GitHub Automated Release | Tag `latest` | [**View Release**](https://github.com/Koushikv18/framed/releases/tag/latest) |
 
 > **Local Machine File**: The compiled APK is ready right inside this project at:
-> - **`framed-app-debug.apk`** (Workspace root)
+> - **`Framed.apk`** / **`framed-app-debug.apk`** (Workspace root)
 > - **`app/build/outputs/apk/debug/app-debug.apk`** (Build outputs)
 
 ---
@@ -32,7 +36,7 @@
 ## ⚡ Quick Install Guide
 
 ### Option 1: Direct Install on Android Phone
-1. Open this page on your Android device and tap **[Download Latest APK](https://github.com/Koushikv18/framed/releases/latest/download/app-debug.apk)**.
+1. Open this page on your Android device and tap **[Download Latest APK](https://github.com/Koushikv18/framed/releases/download/latest/Framed.apk)**.
 2. Tap the downloaded file and select **Install** (allow *Install unknown apps* if prompted by your browser or file manager).
 3. Launch **Framed** and grant Camera permissions.
 
