@@ -1,19 +1,7 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
-
-val localProperties = Properties().apply {
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        load(localPropertiesFile.inputStream())
-    }
-}
-val geminiApiKey: String = localProperties.getProperty("GEMINI_API_KEY") ?: System.getenv("GEMINI_API_KEY") ?: ""
-val modelManifestUrl: String = localProperties.getProperty("MODEL_MANIFEST_URL")
-    ?: "https://raw.githubusercontent.com/Koushikv18/framed/main/models/manifest.json"
 
 android {
     namespace = "com.aesthetic.framed"
@@ -23,16 +11,13 @@ android {
         applicationId = "com.aesthetic.framed"
         minSdk = 35
         targetSdk = 37
-        versionCode = 2
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 2
         versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
-
-        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
-        buildConfigField("String", "MODEL_MANIFEST_URL", "\"$modelManifestUrl\"")
     }
 
     buildTypes {
@@ -94,24 +79,38 @@ dependencies {
     // Google MediaPipe Tasks Vision 1.2.3 (Real-time NPU/GPU object detection & tracking)
     implementation("com.google.mediapipe:tasks-vision:1.2.3")
 
-    // TensorFlow Lite 2.16.1 & GPU Delegate (On-Device LAION Aesthetics V2 scoring)
+    // TensorFlow Lite 2.16.1 & GPU Delegate
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
     implementation("org.tensorflow:tensorflow-lite-api:2.16.1")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
-
-    // Google Generative AI (Gemini 3.8 Flash SDK)
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
-
-    // WorkManager (OTA trend and model updates)
-    implementation("androidx.work:work-runtime-ktx:2.10.0")
-
-    // OkHttp & Kotlinx Serialization
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+// Strict Offline Guard: Enforce zero INTERNET permission in merged manifest
+tasks.register("verifyNoInternetPermission") {
+    description = "Fails the build if the merged AndroidManifest contains android.permission.INTERNET"
+    group = "verification"
+    doLast {
+        val mergedManifests = fileTree(layout.buildDirectory.dir("intermediates/merged_manifests")) {
+            include("**/AndroidManifest.xml")
+        }
+        var foundInternet = false
+        mergedManifests.files.forEach { file ->
+            if (file.exists() && file.readText().contains("android.permission.INTERNET")) {
+                foundInternet = true
+            }
+        }
+        if (foundInternet) {
+            throw GradleException("PRIVACY VIOLATION: Merged AndroidManifest contains 'android.permission.INTERNET'! Framed must remain 100% offline.")
+        }
+    }
+}
+
+tasks.matching { it.name.startsWith("process") && it.name.endsWith("Manifest") }.configureEach {
+    finalizedBy("verifyNoInternetPermission")
 }

@@ -84,8 +84,6 @@ fun CameraScreen(
 
     var isDrawerOpen by remember { mutableStateOf(false) }
     var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
-    var isAiAnalyzing by remember { mutableStateOf(false) }
-    var aiCritiqueBanner by remember { mutableStateOf<String?>(null) }
     var isAutoCaptureEnabled by remember { mutableStateOf(false) }
     var autoCaptureProgress by remember { mutableStateOf(0f) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -280,44 +278,6 @@ fun CameraScreen(
                         fontFamily = FontFamily.Monospace
                     )
                 }
-
-                // Tier 2 Live Online AI Director Trigger
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isAiAnalyzing) EmeraldLevel else StudioDark)
-                        .border(1.dp, if (isAiAnalyzing) EmeraldLevel else StudioBorder, RoundedCornerShape(8.dp))
-                        .clickable {
-                            if (!isAiAnalyzing) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                val bmp = previewView.bitmap
-                                if (bmp != null) {
-                                    isAiAnalyzing = true
-                                    coroutineScope.launch {
-                                        val advice = com.aesthetic.framed.domain.ai.AestheticDirectorService.analyzeFrame(context, bmp)
-                                        isAiAnalyzing = false
-                                        advice.targetBox?.let { target ->
-                                            cameraEngine.compositionAnalyzer.setDrawnTarget(target)
-                                        }
-                                        aiCritiqueBanner = advice.critique
-                                        kotlinx.coroutines.delay(6000)
-                                        aiCritiqueBanner = null
-                                    }
-                                } else {
-                                    Toast.makeText(context, "Frame initializing...", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = if (isAiAnalyzing) "THINKING" else "AI DIR",
-                        color = if (isAiAnalyzing) StudioBlack else EmeraldLevel,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
             }
 
             // Central Viewfinder Container with Dynamic Aspect Ratio letterboxing
@@ -363,33 +323,6 @@ fun CameraScreen(
                             },
                             modifier = Modifier.fillMaxSize()
                         )
-
-                        // Live AI Director Critique Banner
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = aiCritiqueBanner != null,
-                            enter = androidx.compose.animation.fadeIn(),
-                            exit = androidx.compose.animation.fadeOut(),
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(horizontal = 16.dp, vertical = 20.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(StudioDark.copy(alpha = 0.92f))
-                                    .border(1.dp, EmeraldLevel, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    text = aiCritiqueBanner ?: "",
-                                    color = StudioText,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    fontFamily = FontFamily.Monospace,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                )
-                            }
-                        }
                     }
                 }
             }

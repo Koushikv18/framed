@@ -94,13 +94,6 @@ fun DarkroomScreen(
     var activeTab by remember { mutableStateOf(DarkroomTab.LIGHT) }
     var activeHslChannel by remember { mutableStateOf(HslChannel.RED) }
 
-    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
-    var trendingPresets by remember {
-        mutableStateOf(com.aesthetic.framed.domain.ai.SelfUpgradeWorker.loadTrendingPresets(context))
-    }
-    var isAiDirectorLoading by remember { mutableStateOf(false) }
-    var aiDirectorAdvice by remember { mutableStateOf<com.aesthetic.framed.domain.ai.DirectorAdvice?>(null) }
-
     // Compare original button interaction source
     val compareInteraction = remember { MutableInteractionSource() }
     val isComparingOriginal by compareInteraction.collectIsPressedAsState()
@@ -191,52 +184,21 @@ fun DarkroomScreen(
                     )
                 }
 
-                // Actions: AI Director & Export Button
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Export Action
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(EmeraldLevel)
+                        .clickable { onExportRequested(sourceBitmap, adjustments, exportOptions) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isAiDirectorLoading) EmeraldLevel else StudioDark)
-                            .border(1.dp, EmeraldLevel, RoundedCornerShape(10.dp))
-                            .clickable {
-                                if (!isAiDirectorLoading) {
-                                    isAiDirectorLoading = true
-                                    coroutineScope.launch {
-                                        val advice = com.aesthetic.framed.domain.ai.AestheticDirectorService.analyzeFrame(context, sourceBitmap)
-                                        isAiDirectorLoading = false
-                                        aiDirectorAdvice = advice
-                                    }
-                                }
-                            }
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = if (isAiDirectorLoading) "THINKING" else "AI GRADE",
-                            color = if (isAiDirectorLoading) StudioBlack else EmeraldLevel,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(EmeraldLevel)
-                            .clickable { onExportRequested(sourceBitmap, adjustments, exportOptions) }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = "EXPORT",
-                            color = StudioBlack,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
+                    Text(
+                        text = "EXPORT",
+                        color = StudioBlack,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
             }
 
@@ -316,54 +278,6 @@ fun DarkroomScreen(
                             fontFamily = FontFamily.Monospace
                         )
                     }
-                }
-
-                // Dynamic Live Trending Presets from Tier 3 Self-Upgrade Loop
-                trendingPresets.forEach { customPreset ->
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(StudioSurface)
-                            .border(1.dp, AmberRetro, RoundedCornerShape(10.dp))
-                            .clickable {
-                                adjustments = customPreset.adjustments
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = "AI: ${customPreset.title}",
-                            color = AmberRetro,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-
-                // Sync Aesthetics OTA Trigger Pill
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(StudioDark)
-                        .border(1.dp, StudioBorder, RoundedCornerShape(10.dp))
-                        .clickable {
-                            val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.aesthetic.framed.domain.ai.SelfUpgradeWorker>().build()
-                            androidx.work.WorkManager.getInstance(context).enqueue(workRequest)
-                            android.widget.Toast.makeText(context, "Syncing latest AI trends...", android.widget.Toast.LENGTH_SHORT).show()
-                            coroutineScope.launch {
-                                kotlinx.coroutines.delay(3000)
-                                trendingPresets = com.aesthetic.framed.domain.ai.SelfUpgradeWorker.loadTrendingPresets(context)
-                            }
-                        }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "SYNC AI",
-                        color = StudioTextMuted,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
                 }
             }
 
@@ -730,88 +644,6 @@ fun DarkroomScreen(
                                     uncheckedThumbColor = StudioTextMuted,
                                     uncheckedTrackColor = StudioDark
                                 )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Tier 2 Live Online AI Director Modal Card
-        aiDirectorAdvice?.let { advice ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.82f))
-                    .clickable { aiDirectorAdvice = null },
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth(0.88f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(StudioDark)
-                        .border(1.dp, EmeraldLevel, RoundedCornerShape(16.dp))
-                        .padding(20.dp)
-                        .clickable(enabled = false) {},
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = if (advice.isOnlineResult) "GEMINI 3.8 FLASH DIRECTOR" else "EDGE AI DIRECTOR",
-                        color = EmeraldLevel,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = advice.critique,
-                        color = StudioText,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(StudioSurface)
-                                .clickable { aiDirectorAdvice = null }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "DISMISS",
-                                color = StudioTextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1.4f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(EmeraldLevel)
-                                .clickable {
-                                    adjustments = advice.suggestedAdjustments
-                                    aiDirectorAdvice = null
-                                }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "APPLY AI GRADE",
-                                color = StudioBlack,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
                             )
                         }
                     }

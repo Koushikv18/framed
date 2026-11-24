@@ -13,13 +13,6 @@
 -keep class androidx.exifinterface.media.ExifInterface { *; }
 -dontwarn androidx.exifinterface.media.**
 
-# Google ML Kit Object Detection & Tracking (Bundled On-Device Model)
--keep class com.google.mlkit.** { *; }
--keep class com.google.android.gms.internal.mlkit_vision_object_detection.** { *; }
--keep class com.google.android.gms.vision.** { *; }
--dontwarn com.google.mlkit.**
--dontwarn com.google.android.gms.**
-
 # OpenGL ES & EGL Native calls
 -keepclasseswithmembers class * {
     native <methods>;
@@ -43,20 +36,8 @@
 -keep class org.tensorflow.lite.** { *; }
 -dontwarn org.tensorflow.lite.**
 
-# Google Generative AI (Gemini SDK) & OkHttp & Serialization
--keep class com.google.ai.client.generativeai.** { *; }
--dontwarn com.google.ai.client.generativeai.**
--keepattributes *Annotation*,Signature
--keepclassmembers class * {
-    @kotlinx.serialization.Serializable <fields>;
-}
--keep class kotlinx.serialization.** { *; }
--dontwarn okhttp3.**
-
-# WorkManager
--keep class androidx.work.** { *; }
--dontwarn androidx.work.**
-
 # Framed Data & Recipe Models
+-keep class com.aesthetic.framed.data.model.** { *; }
+-keep class com.aesthetic.framed.domain.recipe.** { *; }
 -keep class com.aesthetic.framed.data.model.** { *; }
 -keep class com.aesthetic.framed.domain.recipe.** { *; }
