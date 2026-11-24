@@ -34,7 +34,8 @@ class PhotoExporter(private val context: Context) {
         sourceBitmap: Bitmap,
         sourceUri: Uri?,
         adjustments: DarkroomAdjustments,
-        options: ExportOptions
+        options: ExportOptions,
+        activeZoomRatio: Float = 1.0f
     ): Result<Uri> = withContext(Dispatchers.IO) {
         var shaderRendered: Bitmap? = null
         var framedComposite: Bitmap? = null
@@ -43,11 +44,11 @@ class PhotoExporter(private val context: Context) {
             // 1. Offscreen OpenGL ES 3.0 Shader Pipeline
             shaderRendered = filmShaderRenderer.renderOffscreen(sourceBitmap, adjustments)
 
-            // 2. Extract Metadata for Frame & Stamp
+            // 2. Extract Metadata for Frame & Stamp (including S25 Ultra quad-lens mapping)
             val metadata = if (sourceUri != null) {
-                ExifHelper.extractMetadata(context, sourceUri)
+                ExifHelper.extractMetadata(context, sourceUri, activeZoomRatio)
             } else {
-                ExifHelper.extractMetadata(context, Uri.EMPTY)
+                ExifHelper.extractMetadata(context, Uri.EMPTY, activeZoomRatio)
             }
 
             // 3. Composite Frame Matting & Date Stamp

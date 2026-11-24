@@ -16,27 +16,40 @@ import java.util.Locale
 
 object ExifHelper {
 
-    fun getRotationDegrees(context: Context, uri: Uri): Int {
-        return try {
+    /**
+     * Resolves complete android.graphics.Matrix supporting all 8 EXIF orientation constants:
+     * NORMAL, FLIP_HORIZONTAL, ROTATE_180, FLIP_VERTICAL, TRANSPOSE, ROTATE_90, TRANSVERSE, ROTATE_270.
+     */
+    fun getOrientationMatrix(context: Context, uri: Uri): Matrix {
+        val matrix = Matrix()
+        try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 val exif = ExifInterface(stream)
                 when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-                    ExifInterface.ORIENTATION_ROTATE_90 -> 90
-                    ExifInterface.ORIENTATION_ROTATE_180 -> 180
-                    ExifInterface.ORIENTATION_ROTATE_270 -> 270
-                    else -> 0
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                    ExifInterface.ORIENTATION_TRANSPOSE -> {
+                        matrix.postRotate(90f)
+                        matrix.postScale(-1f, 1f)
+                    }
+                    ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                    ExifInterface.ORIENTATION_TRANSVERSE -> {
+                        matrix.postRotate(270f)
+                        matrix.postScale(-1f, 1f)
+                    }
+                    ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                    else -> {}
                 }
-            } ?: 0
-        } catch (_: Exception) {
-            0
-        }
+            }
+        } catch (_: Exception) {}
+        return matrix
     }
 
     /**
-     * Reads EXIF orientation from captured or imported photos and applies
-     * the exact rotation matrix before feeding to OpenGL ES 3.0 or Compose,
-     * ensuring portrait shots never render sideways or distorted.
-     * Optionally downsamples to maxDimension for smooth 120fps scrubbing.
+     * Decodes photo applying exact EXIF rotation/flip matrix.
+     * When maxDimension is specified (e.g. 2048px for editor preview), uses inSampleSize
+     * followed by Bitmap.createScaledBitmap to strictly cap the long edge for 120Hz locked scrubbing.
      */
     fun decodeRotatedBitmap(
         context: Context,
@@ -44,7 +57,7 @@ object ExifHelper {
         maxDimension: Int? = null
     ): Bitmap? {
         return try {
-            val degrees = getRotationDegrees(context, uri)
+            val orientationMatrix = getOrientationMatrix(context, uri)
 
             val options = BitmapFactory.Options()
             if (maxDimension != null) {
@@ -65,15 +78,30 @@ object ExifHelper {
                 BitmapFactory.decodeStream(stream, null, options)
             } ?: return null
 
-            if (degrees != 0) {
-                val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
-                val rotated = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
-                if (rotated != decoded) {
-                    decoded.recycle()
-                }
+            // Apply 8-orientation EXIF Matrix transformation
+            val transformed = if (!orientationMatrix.isIdentity) {
+                val rotated = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, orientationMatrix, true)
+                if (rotated != decoded) decoded.recycle()
                 rotated
             } else {
                 decoded
+            }
+
+            // Enforce exact max long-edge cap (e.g. 2048px) if requested
+            if (maxDimension != null) {
+                val longEdge = maxOf(transformed.width, transformed.height)
+                if (longEdge > maxDimension) {
+                    val scale = maxDimension.toFloat() / longEdge.toFloat()
+                    val targetWidth = (transformed.width * scale).toInt().coerceAtLeast(1)
+                    val targetHeight = (transformed.height * scale).toInt().coerceAtLeast(1)
+                    val capped = Bitmap.createScaledBitmap(transformed, targetWidth, targetHeight, true)
+                    if (capped != transformed) transformed.recycle()
+                    capped
+                } else {
+                    transformed
+                }
+            } else {
+                transformed
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -81,27 +109,40 @@ object ExifHelper {
         }
     }
 
-    fun extractMetadata(context: Context, uri: Uri): PhotoMetadata {
+    fun extractMetadata(context: Context, uri: Uri, activeZoomRatio: Float = 1.0f): PhotoMetadata {
         return try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
-                extractMetadataFromStream(stream)
-            } ?: createDefaultMetadata()
+                extractMetadataFromStream(stream, activeZoomRatio)
+            } ?: createDefaultMetadata(activeZoomRatio)
         } catch (_: Exception) {
-            createDefaultMetadata()
+            createDefaultMetadata(activeZoomRatio)
         }
     }
 
-    private fun extractMetadataFromStream(stream: InputStream): PhotoMetadata {
+    private fun extractMetadataFromStream(stream: InputStream, activeZoomRatio: Float): PhotoMetadata {
         val exif = ExifInterface(stream)
         val model = exif.getAttribute(ExifInterface.TAG_MODEL) ?: Build.MODEL ?: "FRAMED CAMERA"
         val make = exif.getAttribute(ExifInterface.TAG_MAKE) ?: Build.MANUFACTURER ?: ""
         val fullDeviceName = if (model.startsWith(make, ignoreCase = true)) model else "$make $model".trim()
 
-        val focalLengthMm = exif.getAttributeDouble(ExifInterface.TAG_FOCAL_LENGTH, 0.0)
-        val focalLengthStr = if (focalLengthMm > 0.0) "${Math.round(focalLengthMm * 5.5)}mm eq." else "24mm eq."
+        // Requirement 5: Read TAG_FOCAL_LENGTH_IN_35MM_FILM first; if missing, map from S25 Ultra quad-lens zoom
+        val focal35mm = exif.getAttributeInt(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, 0)
+        val focalLengthStr = when {
+            focal35mm > 0 -> "${focal35mm}mm eq."
+            activeZoomRatio <= 0.8f -> "13mm eq."
+            activeZoomRatio <= 1.8f -> "23mm eq."
+            activeZoomRatio <= 4.0f -> "69mm eq."
+            else -> "115mm eq."
+        }
 
         val apertureVal = exif.getAttributeDouble(ExifInterface.TAG_F_NUMBER, 0.0)
-        val apertureStr = if (apertureVal > 0.0) String.format(Locale.US, "f/%.1f", apertureVal) else "f/1.8"
+        val apertureStr = when {
+            apertureVal > 0.0 -> String.format(Locale.US, "f/%.1f", apertureVal)
+            activeZoomRatio <= 0.8f -> "f/1.9"
+            activeZoomRatio <= 1.8f -> "f/1.7"
+            activeZoomRatio <= 4.0f -> "f/2.4"
+            else -> "f/3.4"
+        }
 
         val expTime = exif.getAttributeDouble(ExifInterface.TAG_EXPOSURE_TIME, 0.0)
         val shutterSpeedStr = if (expTime > 0.0) {
@@ -144,7 +185,7 @@ object ExifHelper {
         }
     }
 
-    private fun createDefaultMetadata(): PhotoMetadata {
+    private fun createDefaultMetadata(activeZoomRatio: Float): PhotoMetadata {
         val model = Build.MODEL ?: "FRAMED CAMERA"
         val cal = java.util.Calendar.getInstance()
         val year = cal.get(java.util.Calendar.YEAR) % 100
@@ -152,10 +193,17 @@ object ExifHelper {
         val day = cal.get(java.util.Calendar.DAY_OF_MONTH)
         val lcdStamp = String.format(Locale.US, "'%02d %02d %02d", year, month, day)
 
+        val focalLengthStr = when {
+            activeZoomRatio <= 0.8f -> "13mm eq."
+            activeZoomRatio <= 1.8f -> "23mm eq."
+            activeZoomRatio <= 4.0f -> "69mm eq."
+            else -> "115mm eq."
+        }
+
         return PhotoMetadata(
             deviceModel = model.uppercase(Locale.US),
-            focalLength = "24mm eq.",
-            aperture = "f/1.8",
+            focalLength = focalLengthStr,
+            aperture = "f/1.7",
             shutterSpeed = "1/250s",
             iso = "ISO 100",
             captureDate = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date()),
@@ -163,10 +211,6 @@ object ExifHelper {
         )
     }
 
-    /**
-     * Requirement 5:
-     * Explicitly copy original EXIF tags onto the exported MediaStore JPEG after Bitmap.compress().
-     */
     fun copyExifTags(sourceStream: InputStream, targetFile: File) {
         try {
             val sourceExif = ExifInterface(sourceStream)
@@ -194,7 +238,7 @@ object ExifHelper {
                     destExif.setAttribute(tag, value)
                 }
             }
-            destExif.setAttribute(ExifInterface.TAG_SOFTWARE, "Framed Android 1.0")
+            destExif.setAttribute(ExifInterface.TAG_SOFTWARE, "Framed Android 2.0")
             destExif.saveAttributes()
         } catch (e: Exception) {
             e.printStackTrace()

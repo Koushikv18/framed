@@ -44,6 +44,10 @@ import com.aesthetic.framed.ui.theme.StudioBorder
 import com.aesthetic.framed.ui.theme.StudioDark
 import com.aesthetic.framed.ui.theme.StudioText
 
+private enum class DragMode {
+    NONE, DRAW_NEW, MOVE_CENTER, RESIZE_TL, RESIZE_TR, RESIZE_BL, RESIZE_BR
+}
+
 @Composable
 fun CoachOverlay(
     state: CompositionState,
@@ -52,58 +56,128 @@ fun CoachOverlay(
 ) {
     if (state.coachMode == CoachMode.OFF) return
 
+    var activeDragMode by remember { mutableStateOf(DragMode.NONE) }
     var dragStartOffset by remember { mutableStateOf<Offset?>(null) }
-    var dragCurrentOffset by remember { mutableStateOf<Offset?>(null) }
+    var currentBox by remember(state.drawnTargetBox) { mutableStateOf(state.drawnTargetBox) }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .then(
-                if (state.coachMode == CoachMode.DRAW_TO_TRACK) {
-                    Modifier.pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                dragStartOffset = offset
-                                dragCurrentOffset = offset
-                            },
-                            onDrag = { change, _ ->
-                                change.consume()
-                                dragCurrentOffset = change.position
-                            },
-                            onDragEnd = {
-                                val start = dragStartOffset
-                                val end = dragCurrentOffset
-                                if (start != null && end != null) {
-                                    val left = minOf(start.x, end.x) / size.width
-                                    val top = minOf(start.y, end.y) / size.height
-                                    val right = maxOf(start.x, end.x) / size.width
-                                    val bottom = maxOf(start.y, end.y) / size.height
+            .pointerInput(state.coachMode, currentBox) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        dragStartOffset = offset
+                        val box = currentBox
+                        if (box != null) {
+                            val pxLeft = box.left * size.width
+                            val pxTop = box.top * size.height
+                            val pxRight = box.right * size.width
+                            val pxBottom = box.bottom * size.height
+                            val handleRadius = 36.dp.toPx()
 
-                                    // Only accept if meaningful box size
-                                    if ((right - left) > 0.05f && (bottom - top) > 0.05f) {
-                                        onTargetBoxDrawn(DrawnTargetBox(left, top, right, bottom))
-                                    } else {
-                                        onTargetBoxDrawn(null)
-                                    }
-                                }
-                                dragStartOffset = null
-                                dragCurrentOffset = null
-                            },
-                            onDragCancel = {
-                                dragStartOffset = null
-                                dragCurrentOffset = null
+                            fun dist(x1: Float, y1: Float, x2: Float, y2: Float): Float {
+                                val dx = x1 - x2
+                                val dy = y1 - y2
+                                return kotlin.math.sqrt(dx * dx + dy * dy)
                             }
-                        )
+
+                            activeDragMode = when {
+                                dist(offset.x, offset.y, pxLeft, pxTop) <= handleRadius -> DragMode.RESIZE_TL
+                                dist(offset.x, offset.y, pxRight, pxTop) <= handleRadius -> DragMode.RESIZE_TR
+                                dist(offset.x, offset.y, pxLeft, pxBottom) <= handleRadius -> DragMode.RESIZE_BL
+                                dist(offset.x, offset.y, pxRight, pxBottom) <= handleRadius -> DragMode.RESIZE_BR
+                                offset.x in pxLeft..pxRight && offset.y in pxTop..pxBottom -> DragMode.MOVE_CENTER
+                                state.coachMode == CoachMode.DRAW_TO_TRACK -> DragMode.DRAW_NEW
+                                else -> DragMode.NONE
+                            }
+                        } else if (state.coachMode == CoachMode.DRAW_TO_TRACK) {
+                            activeDragMode = DragMode.DRAW_NEW
+                        } else {
+                            activeDragMode = DragMode.NONE
+                        }
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        val box = currentBox
+                        val w = size.width.toFloat()
+                        val h = size.height.toFloat()
+
+                        when (activeDragMode) {
+                            DragMode.DRAW_NEW -> {
+                                val start = dragStartOffset ?: return@detectDragGestures
+                                val cur = change.position
+                                val l = minOf(start.x, cur.x) / w
+                                val t = minOf(start.y, cur.y) / h
+                                val r = maxOf(start.x, cur.x) / w
+                                val b = maxOf(start.y, cur.y) / h
+                                currentBox = DrawnTargetBox(l.coerceIn(0f, 1f), t.coerceIn(0f, 1f), r.coerceIn(0f, 1f), b.coerceIn(0f, 1f))
+                            }
+                            DragMode.MOVE_CENTER -> {
+                                if (box != null) {
+                                    val dx = dragAmount.x / w
+                                    val dy = dragAmount.y / h
+                                    val boxW = box.right - box.left
+                                    val boxH = box.bottom - box.top
+                                    val newL = (box.left + dx).coerceIn(0f, 1f - boxW)
+                                    val newT = (box.top + dy).coerceIn(0f, 1f - boxH)
+                                    currentBox = DrawnTargetBox(newL, newT, newL + boxW, newT + boxH)
+                                }
+                            }
+                            DragMode.RESIZE_TL -> {
+                                if (box != null) {
+                                    val newL = (box.left + dragAmount.x / w).coerceIn(0f, box.right - 0.05f)
+                                    val newT = (box.top + dragAmount.y / h).coerceIn(0f, box.bottom - 0.05f)
+                                    currentBox = DrawnTargetBox(newL, newT, box.right, box.bottom)
+                                }
+                            }
+                            DragMode.RESIZE_TR -> {
+                                if (box != null) {
+                                    val newR = (box.right + dragAmount.x / w).coerceIn(box.left + 0.05f, 1f)
+                                    val newT = (box.top + dragAmount.y / h).coerceIn(0f, box.bottom - 0.05f)
+                                    currentBox = DrawnTargetBox(box.left, newT, newR, box.bottom)
+                                }
+                            }
+                            DragMode.RESIZE_BL -> {
+                                if (box != null) {
+                                    val newL = (box.left + dragAmount.x / w).coerceIn(0f, box.right - 0.05f)
+                                    val newB = (box.bottom + dragAmount.y / h).coerceIn(box.top + 0.05f, 1f)
+                                    currentBox = DrawnTargetBox(newL, box.top, box.right, newB)
+                                }
+                            }
+                            DragMode.RESIZE_BR -> {
+                                if (box != null) {
+                                    val newR = (box.right + dragAmount.x / w).coerceIn(box.left + 0.05f, 1f)
+                                    val newB = (box.bottom + dragAmount.y / h).coerceIn(box.top + 0.05f, 1f)
+                                    currentBox = DrawnTargetBox(box.left, box.top, newR, newB)
+                                }
+                            }
+                            DragMode.NONE -> {}
+                        }
+                    },
+                    onDragEnd = {
+                        val finalBox = currentBox
+                        if (finalBox != null && (finalBox.right - finalBox.left) > 0.05f && (finalBox.bottom - finalBox.top) > 0.05f) {
+                            onTargetBoxDrawn(finalBox)
+                        } else {
+                            currentBox = null
+                            onTargetBoxDrawn(null)
+                        }
+                        activeDragMode = DragMode.NONE
+                        dragStartOffset = null
+                    },
+                    onDragCancel = {
+                        activeDragMode = DragMode.NONE
+                        dragStartOffset = null
                     }
-                } else Modifier
-            )
+                )
+            }
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val canvasWidth = size.width
             val canvasHeight = size.height
 
             // 1. Subtle Rule of Thirds Grid
-            val gridColor = Color.White.copy(alpha = 0.18f)
+            val gridColor = Color.White.copy(alpha = 0.16f)
             val strokeOne = 1.dp.toPx()
 
             // Vertical thirds lines
@@ -165,44 +239,34 @@ fun CoachOverlay(
                 drawLine(bracketColor, Offset(right, bottom), Offset(right, bottom - bracketLength), bracketStroke, StrokeCap.Round)
             }
 
-            // 3. Draw-to-track drawn box
-            val currentStart = dragStartOffset
-            val currentEnd = dragCurrentOffset
-            if (currentStart != null && currentEnd != null) {
-                // Active dragging preview
-                val rectLeft = minOf(currentStart.x, currentEnd.x)
-                val rectTop = minOf(currentStart.y, currentEnd.y)
-                val rectWidth = maxOf(currentStart.x, currentEnd.x) - rectLeft
-                val rectHeight = maxOf(currentStart.y, currentEnd.y) - rectTop
+            // 3. Interactive Target Frame with Corner Drag Handles
+            val activeBox = currentBox ?: state.drawnTargetBox
+            activeBox?.let { target ->
+                val tLeft = target.left * canvasWidth
+                val tTop = target.top * canvasHeight
+                val tWidth = (target.right - target.left) * canvasWidth
+                val tHeight = (target.bottom - target.top) * canvasHeight
+                val tRight = target.right * canvasWidth
+                val tBottom = target.bottom * canvasHeight
+
+                val boxColor = if (state.isTargetLocked) EmeraldLevel else Color.White.copy(alpha = 0.65f)
 
                 drawRect(
-                    color = Color.White.copy(alpha = 0.8f),
-                    topLeft = Offset(rectLeft, rectTop),
-                    size = Size(rectWidth, rectHeight),
+                    color = boxColor,
+                    topLeft = Offset(tLeft, tTop),
+                    size = Size(tWidth, tHeight),
                     style = Stroke(
-                        width = 1.5.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 12f), 0f)
+                        width = if (state.isTargetLocked) 2.dp.toPx() else 1.2.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f), 0f)
                     )
                 )
-            } else {
-                state.drawnTargetBox?.let { target ->
-                    val tLeft = target.left * canvasWidth
-                    val tTop = target.top * canvasHeight
-                    val tWidth = (target.right - target.left) * canvasWidth
-                    val tHeight = (target.bottom - target.top) * canvasHeight
 
-                    val boxColor = if (state.isTargetLocked) EmeraldLevel else Color.White.copy(alpha = 0.5f)
-
-                    drawRect(
-                        color = boxColor,
-                        topLeft = Offset(tLeft, tTop),
-                        size = Size(tWidth, tHeight),
-                        style = Stroke(
-                            width = if (state.isTargetLocked) 2.dp.toPx() else 1.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 10f), 0f)
-                        )
-                    )
-                }
+                // 4 Interactive Corner Drag Handles
+                val handleRadius = 4.dp.toPx()
+                drawCircle(color = boxColor, radius = handleRadius, center = Offset(tLeft, tTop))
+                drawCircle(color = boxColor, radius = handleRadius, center = Offset(tRight, tTop))
+                drawCircle(color = boxColor, radius = handleRadius, center = Offset(tLeft, tBottom))
+                drawCircle(color = boxColor, radius = handleRadius, center = Offset(tRight, tBottom))
             }
         }
 
@@ -213,7 +277,6 @@ fun CoachOverlay(
                 .padding(top = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Score pill / IoU Lock readout
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
@@ -259,7 +322,7 @@ fun CoachOverlay(
                 }
             }
 
-            // Dynamic Live Coaching Hints
+            // Dynamic Live Coaching Hints (including S25 Ultra Zoom / Lens guidance)
             AnimatedVisibility(
                 visible = state.coachingHints.isNotEmpty(),
                 enter = fadeIn(),

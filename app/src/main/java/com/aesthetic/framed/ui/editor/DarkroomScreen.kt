@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -54,6 +55,7 @@ import com.aesthetic.framed.data.model.DarkroomAdjustments
 import com.aesthetic.framed.data.model.ExportOptions
 import com.aesthetic.framed.data.model.FilmPreset
 import com.aesthetic.framed.data.model.FramePreset
+import com.aesthetic.framed.data.model.HslChannel
 import com.aesthetic.framed.domain.gl.FilmShaderRenderer
 import com.aesthetic.framed.ui.theme.AmberRetro
 import com.aesthetic.framed.ui.theme.EmeraldLevel
@@ -68,10 +70,10 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 private enum class DarkroomTab(val title: String) {
-    TONE("TONE"),
+    LIGHT("LIGHT"),
+    COLOR("COLOR"),
     CURVES("CURVES"),
-    HSL("HSL"),
-    EFFECT("EFFECT"),
+    EFFECTS("EFFECTS"),
     FRAME("FRAME")
 }
 
@@ -80,12 +82,15 @@ fun DarkroomScreen(
     sourceBitmap: Bitmap,
     onBack: () -> Unit,
     onExportRequested: (Bitmap, DarkroomAdjustments, ExportOptions) -> Unit,
+    initialAdjustments: DarkroomAdjustments = DarkroomAdjustments(),
+    initialExportOptions: ExportOptions = ExportOptions(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var adjustments by remember { mutableStateOf(DarkroomAdjustments()) }
-    var exportOptions by remember { mutableStateOf(ExportOptions()) }
-    var activeTab by remember { mutableStateOf(DarkroomTab.TONE) }
+    var adjustments by remember { mutableStateOf(initialAdjustments) }
+    var exportOptions by remember { mutableStateOf(initialExportOptions) }
+    var activeTab by remember { mutableStateOf(DarkroomTab.LIGHT) }
+    var activeHslChannel by remember { mutableStateOf(HslChannel.RED) }
 
     // Compare original button interaction source
     val compareInteraction = remember { MutableInteractionSource() }
@@ -141,7 +146,7 @@ fun DarkroomScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp)
+                    .height(56.dp)
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -149,7 +154,7 @@ fun DarkroomScreen(
                 // Back Button
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .background(StudioDark)
                         .border(1.dp, StudioBorder, CircleShape)
@@ -237,12 +242,12 @@ fun DarkroomScreen(
                 }
             }
 
-            // Presets Horizontal Reel
+            // Presets Horizontal Reel (ORIGINAL, N1600, P400, RELIC, MONO)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(StudioDark)
-                    .padding(vertical = 10.dp, horizontal = 12.dp)
+                    .padding(vertical = 8.dp, horizontal = 12.dp)
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -260,7 +265,7 @@ fun DarkroomScreen(
                                     halationIntensity = preset.halationDefault
                                 )
                             }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
                             text = preset.title,
@@ -273,12 +278,12 @@ fun DarkroomScreen(
                 }
             }
 
-            // Adjustment Category Tabs (TONE, CURVES, HSL, EFFECT, FRAME)
+            // Adjustment Category Tabs (LIGHT, COLOR, CURVES, EFFECTS, FRAME)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(StudioBlack)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceAround
             ) {
                 DarkroomTab.values().forEach { tab ->
@@ -286,7 +291,7 @@ fun DarkroomScreen(
                     Box(
                         modifier = Modifier
                             .clickable { activeTab = tab }
-                            .padding(vertical = 4.dp, horizontal = 6.dp)
+                            .padding(vertical = 4.dp, horizontal = 4.dp)
                     ) {
                         Text(
                             text = tab.title,
@@ -299,117 +304,281 @@ fun DarkroomScreen(
                 }
             }
 
-            // Active Tab Controls Bar
+            // Active Tab Controls Scrollable Sheet
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(StudioDark.copy(alpha = 0.95f))
+                    .height(230.dp)
+                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                    .background(StudioDark.copy(alpha = 0.98f))
                     .border(1.dp, StudioBorder, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                    .padding(horizontal = 20.dp, vertical = 14.dp)
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
                 when (activeTab) {
-                    DarkroomTab.TONE -> {
-                        AdjustmentSlider(
-                            name = "EXPOSURE",
-                            value = adjustments.exposure,
-                            range = -2.0f..2.0f,
-                            onValueChange = { adjustments = adjustments.copy(exposure = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "CONTRAST",
-                            value = adjustments.contrast,
-                            range = 0.5f..2.0f,
-                            onValueChange = { adjustments = adjustments.copy(contrast = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "HIGHLIGHTS",
-                            value = adjustments.highlights,
-                            range = -1.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(highlights = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "SHADOWS",
-                            value = adjustments.shadows,
-                            range = -1.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(shadows = it) }
-                        )
+                    DarkroomTab.LIGHT -> {
+                        AdjustmentSlider(name = "EXPOSURE", value = adjustments.exposure, range = -2.0f..2.0f) {
+                            adjustments = adjustments.copy(exposure = it)
+                        }
+                        AdjustmentSlider(name = "CONTRAST", value = adjustments.contrast, range = 0.5f..2.0f) {
+                            adjustments = adjustments.copy(contrast = it)
+                        }
+                        AdjustmentSlider(name = "HIGHLIGHTS", value = adjustments.highlights, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(highlights = it)
+                        }
+                        AdjustmentSlider(name = "SHADOWS", value = adjustments.shadows, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(shadows = it)
+                        }
+                        AdjustmentSlider(name = "WHITES", value = adjustments.whites, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(whites = it)
+                        }
+                        AdjustmentSlider(name = "BLACKS", value = adjustments.blacks, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(blacks = it)
+                        }
+                        AdjustmentSlider(name = "FADE (BLACK LEVEL)", value = adjustments.fade, range = 0.0f..1.0f) {
+                            adjustments = adjustments.copy(fade = it)
+                        }
+                        AdjustmentSlider(name = "TEMPERATURE", value = adjustments.temperature, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(temperature = it)
+                        }
+                        AdjustmentSlider(name = "TINT", value = adjustments.tint, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(tint = it)
+                        }
                     }
-                    DarkroomTab.CURVES -> {
-                        AdjustmentSlider(
-                            name = "RED CURVE BIAS",
-                            value = adjustments.curveRed,
-                            range = -1.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(curveRed = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "GREEN CURVE BIAS",
-                            value = adjustments.curveGreen,
-                            range = -1.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(curveGreen = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "BLUE CURVE BIAS",
-                            value = adjustments.curveBlue,
-                            range = -1.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(curveBlue = it) }
-                        )
-                    }
-                    DarkroomTab.HSL -> {
-                        AdjustmentSlider(
-                            name = "RED SATURATION",
-                            value = adjustments.hslRedSat,
-                            range = -1.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(hslRedSat = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "ORANGE (SKIN)",
-                            value = adjustments.hslOrangeSat,
-                            range = -1.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(hslOrangeSat = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "GREEN SATURATION",
-                            value = adjustments.hslGreenSat,
-                            range = -1.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(hslGreenSat = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "BLUE / SKY",
-                            value = adjustments.hslBlueSat,
-                            range = -1.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(hslBlueSat = it) }
-                        )
-                    }
-                    DarkroomTab.EFFECT -> {
-                        AdjustmentSlider(
-                            name = "FILM GRAIN",
-                            value = adjustments.grainIntensity,
-                            range = 0.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(grainIntensity = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "HALATION (BLOOM)",
-                            value = adjustments.halationIntensity,
-                            range = 0.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(halationIntensity = it) }
-                        )
-                        AdjustmentSlider(
-                            name = "LIGHT LEAKS",
-                            value = adjustments.lightLeakIntensity,
-                            range = 0.0f..1.0f,
-                            onValueChange = { adjustments = adjustments.copy(lightLeakIntensity = it) }
-                        )
-                    }
-                    DarkroomTab.FRAME -> {
-                        // Frame Presets selector
+
+                    DarkroomTab.COLOR -> {
                         Text(
-                            text = "GALLERY MATTING PRESET",
+                            text = "6-CHANNEL HSL MIXER",
                             color = StudioTextSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            HslChannel.values().forEach { channel ->
+                                val isSelected = activeHslChannel == channel
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) EmeraldLevel else StudioSurface)
+                                        .clickable { activeHslChannel = channel }
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = channel.title,
+                                        color = if (isSelected) StudioBlack else StudioText,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        when (activeHslChannel) {
+                            HslChannel.RED -> {
+                                AdjustmentSlider(name = "RED HUE", value = adjustments.hslRedHue, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslRedHue = it)
+                                }
+                                AdjustmentSlider(name = "RED SATURATION", value = adjustments.hslRedSat, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslRedSat = it)
+                                }
+                                AdjustmentSlider(name = "RED LUMINANCE", value = adjustments.hslRedLum, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslRedLum = it)
+                                }
+                            }
+                            HslChannel.ORANGE -> {
+                                AdjustmentSlider(name = "ORANGE HUE", value = adjustments.hslOrangeHue, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslOrangeHue = it)
+                                }
+                                AdjustmentSlider(name = "ORANGE SATURATION", value = adjustments.hslOrangeSat, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslOrangeSat = it)
+                                }
+                                AdjustmentSlider(name = "ORANGE LUMINANCE", value = adjustments.hslOrangeLum, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslOrangeLum = it)
+                                }
+                            }
+                            HslChannel.YELLOW -> {
+                                AdjustmentSlider(name = "YELLOW HUE", value = adjustments.hslYellowHue, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslYellowHue = it)
+                                }
+                                AdjustmentSlider(name = "YELLOW SATURATION", value = adjustments.hslYellowSat, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslYellowSat = it)
+                                }
+                                AdjustmentSlider(name = "YELLOW LUMINANCE", value = adjustments.hslYellowLum, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslYellowLum = it)
+                                }
+                            }
+                            HslChannel.GREEN -> {
+                                AdjustmentSlider(name = "GREEN HUE", value = adjustments.hslGreenHue, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslGreenHue = it)
+                                }
+                                AdjustmentSlider(name = "GREEN SATURATION", value = adjustments.hslGreenSat, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslGreenSat = it)
+                                }
+                                AdjustmentSlider(name = "GREEN LUMINANCE", value = adjustments.hslGreenLum, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslGreenLum = it)
+                                }
+                            }
+                            HslChannel.BLUE -> {
+                                AdjustmentSlider(name = "BLUE HUE", value = adjustments.hslBlueHue, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslBlueHue = it)
+                                }
+                                AdjustmentSlider(name = "BLUE SATURATION", value = adjustments.hslBlueSat, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslBlueSat = it)
+                                }
+                                AdjustmentSlider(name = "BLUE LUMINANCE", value = adjustments.hslBlueLum, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslBlueLum = it)
+                                }
+                            }
+                            HslChannel.MAGENTA -> {
+                                AdjustmentSlider(name = "MAGENTA HUE", value = adjustments.hslMagentaHue, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslMagentaHue = it)
+                                }
+                                AdjustmentSlider(name = "MAGENTA SATURATION", value = adjustments.hslMagentaSat, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslMagentaSat = it)
+                                }
+                                AdjustmentSlider(name = "MAGENTA LUMINANCE", value = adjustments.hslMagentaLum, range = -1.0f..1.0f) {
+                                    adjustments = adjustments.copy(hslMagentaLum = it)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "3-WAY COLOR GRADING",
+                            color = StudioTextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                        AdjustmentSlider(name = "SHADOWS TINT R", value = adjustments.shadowsTintR, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(shadowsTintR = it)
+                        }
+                        AdjustmentSlider(name = "SHADOWS TINT B", value = adjustments.shadowsTintB, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(shadowsTintB = it)
+                        }
+                        AdjustmentSlider(name = "HIGHLIGHTS TINT R", value = adjustments.highlightsTintR, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(highlightsTintR = it)
+                        }
+                        AdjustmentSlider(name = "HIGHLIGHTS TINT B", value = adjustments.highlightsTintB, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(highlightsTintB = it)
+                        }
+                    }
+
+                    DarkroomTab.CURVES -> {
+                        AdjustmentSlider(name = "MASTER CURVE", value = adjustments.curveMaster, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(curveMaster = it)
+                        }
+                        AdjustmentSlider(name = "RED CURVE", value = adjustments.curveRed, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(curveRed = it)
+                        }
+                        AdjustmentSlider(name = "GREEN CURVE", value = adjustments.curveGreen, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(curveGreen = it)
+                        }
+                        AdjustmentSlider(name = "BLUE CURVE", value = adjustments.curveBlue, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(curveBlue = it)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "RGB PRIMARY CALIBRATION",
+                            color = StudioTextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                        AdjustmentSlider(name = "CALIB RED", value = adjustments.calibRed, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(calibRed = it)
+                        }
+                        AdjustmentSlider(name = "CALIB GREEN", value = adjustments.calibGreen, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(calibGreen = it)
+                        }
+                        AdjustmentSlider(name = "CALIB BLUE", value = adjustments.calibBlue, range = -1.0f..1.0f) {
+                            adjustments = adjustments.copy(calibBlue = it)
+                        }
+                    }
+
+                    DarkroomTab.EFFECTS -> {
+                        AdjustmentSlider(name = "FILM GRAIN INTENSITY", value = adjustments.grainIntensity, range = 0.0f..1.0f) {
+                            adjustments = adjustments.copy(grainIntensity = it)
+                        }
+                        AdjustmentSlider(name = "GRAIN SIZE", value = adjustments.grainSize, range = 0.5f..2.0f) {
+                            adjustments = adjustments.copy(grainSize = it)
+                        }
+                        AdjustmentSlider(name = "HALATION BLOOM", value = adjustments.halationIntensity, range = 0.0f..1.0f) {
+                            adjustments = adjustments.copy(halationIntensity = it)
+                        }
+                        AdjustmentSlider(name = "PRO-MIST GLOW", value = adjustments.glowIntensity, range = 0.0f..1.0f) {
+                            adjustments = adjustments.copy(glowIntensity = it)
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "LIGHT LEAKS MODE",
+                            color = StudioTextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("WARM CORNER" to 0, "TOP STREAK" to 1, "PRISM" to 2).forEach { (title, mode) ->
+                                val isSelected = adjustments.lightLeakMode == mode
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) EmeraldLevel else StudioSurface)
+                                        .clickable { adjustments = adjustments.copy(lightLeakMode = mode) }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = title,
+                                        color = if (isSelected) StudioBlack else StudioText,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                        AdjustmentSlider(name = "LIGHT LEAK INTENSITY", value = adjustments.lightLeakIntensity, range = 0.0f..1.0f) {
+                            adjustments = adjustments.copy(lightLeakIntensity = it)
+                        }
+                        AdjustmentSlider(name = "ANALOG SCRATCHES", value = adjustments.scratchesIntensity, range = 0.0f..1.0f) {
+                            adjustments = adjustments.copy(scratchesIntensity = it)
+                        }
+                        AdjustmentSlider(name = "DUST SPECKS", value = adjustments.dustIntensity, range = 0.0f..1.0f) {
+                            adjustments = adjustments.copy(dustIntensity = it)
+                        }
+                        AdjustmentSlider(name = "VIGNETTE", value = adjustments.vignette, range = 0.0f..1.0f) {
+                            adjustments = adjustments.copy(vignette = it)
+                        }
+                        AdjustmentSlider(name = "MOTION BLUR", value = adjustments.motionBlur, range = 0.0f..1.0f) {
+                            adjustments = adjustments.copy(motionBlur = it)
+                        }
+                    }
+
+                    DarkroomTab.FRAME -> {
+                        Text(
+                            text = "GALLERY FRAME MATTING",
+                            color = StudioTextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -420,9 +589,9 @@ fun DarkroomScreen(
                                 val isSelected = exportOptions.framePreset == preset
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isSelected) StudioText else StudioSurface)
-                                        .border(1.dp, if (isSelected) StudioText else StudioBorder, RoundedCornerShape(8.dp))
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) EmeraldLevel else StudioSurface)
+                                        .border(1.dp, if (isSelected) EmeraldLevel else StudioBorder, RoundedCornerShape(10.dp))
                                         .clickable { exportOptions = exportOptions.copy(framePreset = preset) }
                                         .padding(horizontal = 12.dp, vertical = 8.dp)
                                 ) {
@@ -430,43 +599,47 @@ fun DarkroomScreen(
                                         text = preset.title,
                                         color = if (isSelected) StudioBlack else StudioText,
                                         fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace
                                     )
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
-                        // Retro Amber LCD Date Stamp Toggle
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(StudioSurface)
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
                                 Text(
-                                    text = "RETRO AMBER DATE STAMP",
-                                    color = if (exportOptions.isDateStampEnabled) AmberRetro else StudioText,
+                                    text = "AMBER LCD DATE STAMP",
+                                    color = StudioText,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
                                 )
                                 Text(
-                                    text = "90s compact camera LCD imprint ('98 11 24)",
-                                    color = StudioTextMuted,
-                                    fontSize = 9.sp
+                                    text = "'26 11 24 retro format",
+                                    color = AmberRetro,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace
                                 )
                             }
                             Switch(
                                 checked = exportOptions.isDateStampEnabled,
                                 onCheckedChange = { exportOptions = exportOptions.copy(isDateStampEnabled = it) },
                                 colors = SwitchDefaults.colors(
-                                    checkedThumbColor = StudioDark,
-                                    checkedTrackColor = AmberRetro,
+                                    checkedThumbColor = AmberRetro,
+                                    checkedTrackColor = AmberRetro.copy(alpha = 0.3f),
                                     uncheckedThumbColor = StudioTextMuted,
-                                    uncheckedTrackColor = StudioSurface
+                                    uncheckedTrackColor = StudioDark
                                 )
                             )
                         }
@@ -484,7 +657,7 @@ private fun AdjustmentSlider(
     range: ClosedFloatingPointRange<Float>,
     onValueChange: (Float) -> Unit
 ) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+    Column(modifier = Modifier.padding(vertical = 3.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -543,11 +716,12 @@ private class DarkroomGLView(
                 GLES30.glDeleteTextures(1, intArrayOf(textureId), 0)
                 textureId = 0
             }
-            renderer.release()
+            renderer.invalidateGL()
         }
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        renderer.invalidateGL()
         renderer.initGL()
 
         if (textureId != 0) {

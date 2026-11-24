@@ -17,6 +17,8 @@ import java.nio.FloatBuffer
 class FilmShaderRenderer {
 
     companion object {
+        private const val EGL_OPENGL_ES3_BIT_KHR = 0x00000040
+
         private const val VERTEX_SHADER = """#version 300 es
 layout (location = 0) in vec2 aPosition;
 layout (location = 1) in vec2 aTexCoord;
@@ -37,19 +39,50 @@ out vec4 fragColor;
 
 uniform sampler2D uTexture;
 uniform int uPreset;
+uniform vec2 uResolution;
+
+// Light
 uniform float uExposure;
 uniform float uContrast;
 uniform float uHighlights;
 uniform float uShadows;
-uniform vec3 uCurveRGB;
-uniform vec3 uHslSat1; // Red, Orange, Yellow
-uniform vec3 uHslSat2; // Green, Blue, Magenta
-uniform float uGrain;
-uniform float uHalation;
-uniform float uLightLeak;
-uniform vec2 uResolution;
+uniform float uWhites;
+uniform float uBlacks;
+uniform float uFade;
+uniform float uTemperature;
+uniform float uTint;
 
-// RGB to HSV conversion
+// 6-Channel HSL
+uniform vec3 uHslRed;     // Hue, Sat, Lum
+uniform vec3 uHslOrange;
+uniform vec3 uHslYellow;
+uniform vec3 uHslGreen;
+uniform vec3 uHslBlue;
+uniform vec3 uHslMagenta;
+
+// 3-Way Color Grading
+uniform vec3 uShadowsTint;
+uniform vec3 uMidtonesTint;
+uniform vec3 uHighlightsTint;
+
+// Curves & Primary Calibration
+uniform float uCurveMaster;
+uniform vec3 uCurveRGB;
+uniform vec3 uCalibRGB;
+
+// Effects
+uniform float uGrainIntensity;
+uniform float uGrainSize;
+uniform float uHalation;
+uniform float uGlow;
+uniform float uLightLeak;
+uniform int uLightLeakMode;
+uniform float uScratches;
+uniform float uDust;
+uniform float uVignette;
+uniform float uMotionBlur;
+
+// RGB to HSV
 vec3 rgb2hsv(vec3 c) {
     vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
     vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
@@ -60,7 +93,7 @@ vec3 rgb2hsv(vec3 c) {
     return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
 }
 
-// HSV to RGB conversion
+// HSV to RGB
 vec3 hsv2rgb(vec3 c) {
     vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
     vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
@@ -81,28 +114,58 @@ vec3 applyContrast(vec3 col, float contrast) {
 
 void main() {
     vec2 uv = vTexCoord;
-    vec4 baseSample = texture(uTexture, uv);
-    vec3 col = baseSample.rgb;
+    vec3 col;
+
+    // Optional Motion Blur sampling
+    if (uMotionBlur > 0.01) {
+        vec2 blurDir = vec2(uMotionBlur * 0.015, uMotionBlur * 0.005);
+        vec3 accum = vec3(0.0);
+        accum += texture(uTexture, uv - blurDir * 2.0).rgb * 0.12;
+        accum += texture(uTexture, uv - blurDir).rgb * 0.24;
+        accum += texture(uTexture, uv).rgb * 0.28;
+        accum += texture(uTexture, uv + blurDir).rgb * 0.24;
+        accum += texture(uTexture, uv + blurDir * 2.0).rgb * 0.12;
+        col = accum;
+    } else {
+        col = texture(uTexture, uv).rgb;
+    }
 
     // 1. Exposure adjustment (linear gain)
     col *= pow(2.0, uExposure);
 
-    // 2. Highlights / Shadows separation
+    // 2. White Balance: Temperature & Tint
+    col.r += uTemperature * 0.15;
+    col.b -= uTemperature * 0.15;
+    col.g += uTint * 0.12;
+    col.r += uTint * 0.05;
+    col.b += uTint * 0.05;
+    col = clamp(col, 0.0, 1.0);
+
+    // 3. Highlights, Shadows, Whites, Blacks
     float luma = dot(col, vec3(0.299, 0.587, 0.114));
     float highlightMask = smoothstep(0.5, 1.0, luma);
     float shadowMask = 1.0 - smoothstep(0.0, 0.5, luma);
+    float whiteMask = smoothstep(0.75, 1.0, luma);
+    float blackMask = 1.0 - smoothstep(0.0, 0.25, luma);
+
     col += col * (uHighlights * 0.4 * highlightMask);
     col += (1.0 - col) * (uShadows * 0.4 * shadowMask);
+    col += col * (uWhites * 0.3 * whiteMask);
+    col -= col * (uBlacks * 0.3 * blackMask);
 
-    // 3. Contrast
+    // Fade (film lifted black level)
+    col = mix(col, col * (1.0 - uFade * 0.35) + vec3(uFade * 0.18), shadowMask);
+
+    // 4. Contrast
     col = applyContrast(col, uContrast);
 
-    // 4. RGB Tone Curve Bias
-    col.r = clamp(col.r + uCurveRGB.r * 0.15, 0.0, 1.0);
-    col.g = clamp(col.g + uCurveRGB.g * 0.15, 0.0, 1.0);
-    col.b = clamp(col.b + uCurveRGB.b * 0.15, 0.0, 1.0);
+    // 5. RGB Tone Curves & Primary Calibration
+    col = clamp(col + vec3(uCurveMaster * 0.15), 0.0, 1.0);
+    col.r = clamp(col.r + uCurveRGB.r * 0.15 + uCalibRGB.r * 0.10, 0.0, 1.0);
+    col.g = clamp(col.g + uCurveRGB.g * 0.15 + uCalibRGB.g * 0.10, 0.0, 1.0);
+    col.b = clamp(col.b + uCurveRGB.b * 0.15 + uCalibRGB.b * 0.10, 0.0, 1.0);
 
-    // 5. Film Presets
+    // 6. Film Presets
     if (uPreset == 1) {
         // N1600: High-contrast moody color, teal shadows, golden midtones
         col = applyContrast(col, 1.25);
@@ -118,85 +181,159 @@ void main() {
         col = clamp(col + vec3(0.02, 0.015, -0.01), 0.0, 1.0);
     } else if (uPreset == 3) {
         // RELIC: Expired 70s slide, lifted blacks, vintage green/amber
-        col = col * 0.92 + vec3(0.08, 0.06, 0.02); // Lifted blacks
-        col.g = mix(col.g * 1.08, col.g, luma);     // Olive shadows
-        col.r = mix(col.r, col.r * 1.12, luma);     // Amber highlights
+        col = col * 0.92 + vec3(0.08, 0.06, 0.02);
+        col.g = mix(col.g * 1.08, col.g, luma);
+        col.r = mix(col.r * 1.12, luma);
         col = applyContrast(col, 0.95);
     } else if (uPreset == 4) {
-        // MONO: High-contrast rich dynamic B&W
+        // MONO: Rich dynamic B&W
         float monoLuma = dot(col, vec3(0.299, 0.587, 0.114));
         monoLuma = pow(monoLuma, 1.15);
         col = applyContrast(vec3(monoLuma), 1.3);
     }
 
-    // 6. 6-Channel HSL Mixer
+    // 7. 6-Channel HSL Mixer (Hue, Saturation, Luminance per channel)
     if (uPreset != 4) {
         vec3 hsv = rgb2hsv(col);
         float hueDeg = hsv.x * 360.0;
         float satMod = 0.0;
+        float lumMod = 0.0;
+        float hueMod = 0.0;
 
         // Red (0° / 360°)
         float wRed = max(0.0, 1.0 - abs(hueDeg > 180.0 ? hueDeg - 360.0 : hueDeg) / 30.0);
-        satMod += wRed * uHslSat1.x;
+        satMod += wRed * uHslRed.y;
+        lumMod += wRed * uHslRed.z;
+        hueMod += wRed * uHslRed.x;
 
         // Orange (~30°)
         float wOrange = max(0.0, 1.0 - abs(hueDeg - 30.0) / 30.0);
-        satMod += wOrange * uHslSat1.y;
+        satMod += wOrange * uHslOrange.y;
+        lumMod += wOrange * uHslOrange.z;
+        hueMod += wOrange * uHslOrange.x;
 
         // Yellow (~60°)
         float wYellow = max(0.0, 1.0 - abs(hueDeg - 60.0) / 30.0);
-        satMod += wYellow * uHslSat1.z;
+        satMod += wYellow * uHslYellow.y;
+        lumMod += wYellow * uHslYellow.z;
+        hueMod += wYellow * uHslYellow.x;
 
         // Green (~120°)
         float wGreen = max(0.0, 1.0 - abs(hueDeg - 120.0) / 45.0);
-        satMod += wGreen * uHslSat2.x;
+        satMod += wGreen * uHslGreen.y;
+        lumMod += wGreen * uHslGreen.z;
+        hueMod += wGreen * uHslGreen.x;
 
         // Blue (~220°)
-        float wBlue = max(0.0, 1.0 - abs(hueDeg - 220.0) / 45.0);
-        satMod += wBlue * uHslSat2.y;
+        float wBlue = max(0.0, 1.0 - abs(hueDeg - 220.0) / 50.0);
+        satMod += wBlue * uHslBlue.y;
+        lumMod += wBlue * uHslBlue.z;
+        hueMod += wBlue * uHslBlue.x;
 
         // Magenta (~300°)
-        float wMagenta = max(0.0, 1.0 - abs(hueDeg - 300.0) / 45.0);
-        satMod += wMagenta * uHslSat2.z;
+        float wMag = max(0.0, 1.0 - abs(hueDeg - 300.0) / 45.0);
+        satMod += wMag * uHslMagenta.y;
+        lumMod += wMag * uHslMagenta.z;
+        hueMod += wMag * uHslMagenta.x;
 
-        hsv.y = clamp(hsv.y * (1.0 + satMod), 0.0, 1.0);
+        hsv.x = fract(hsv.x + hueMod * 0.15);
+        hsv.y = clamp(hsv.y + satMod, 0.0, 1.0);
+        hsv.z = clamp(hsv.z + lumMod * 0.5, 0.0, 1.0);
         col = hsv2rgb(hsv);
     }
 
-    // 7. Halation (Warm orange highlight bloom)
-    if (uHalation > 0.001) {
-        float highlight = smoothstep(0.70, 1.0, luma);
-        vec3 halationTint = vec3(1.0, 0.35, 0.08) * uHalation * highlight * 0.45;
-        col = clamp(col + halationTint, 0.0, 1.0);
+    // 8. 3-Way Color Grading (Shadows, Midtones, Highlights)
+    float midToneMask = 1.0 - abs(luma - 0.5) * 2.0;
+    col += uShadowsTint * shadowMask * 0.25;
+    col += uMidtonesTint * midToneMask * 0.20;
+    col += uHighlightsTint * highlightMask * 0.25;
+    col = clamp(col, 0.0, 1.0);
+
+    // 9. Multi-sample Halation & Pro-Mist Glow Bloom
+    if (uHalation > 0.01 || uGlow > 0.01) {
+        float stepSize = 4.0 / max(uResolution.x, uResolution.y);
+        vec3 bloomAccum = vec3(0.0);
+        bloomAccum += texture(uTexture, uv + vec2(-stepSize, 0.0)).rgb;
+        bloomAccum += texture(uTexture, uv + vec2(stepSize, 0.0)).rgb;
+        bloomAccum += texture(uTexture, uv + vec2(0.0, -stepSize)).rgb;
+        bloomAccum += texture(uTexture, uv + vec2(0.0, stepSize)).rgb;
+        bloomAccum *= 0.25;
+
+        float bloomLuma = dot(bloomAccum, vec3(0.299, 0.587, 0.114));
+        float edgeContrast = max(0.0, bloomLuma - luma);
+
+        // Halation: Warm orange/red bloom at edge transitions
+        vec3 halationColor = vec3(1.0, 0.22, 0.04) * uHalation * edgeContrast * 3.5;
+        col += halationColor;
+
+        // Glow (Pro-Mist highlight diffusion)
+        vec3 glowColor = bloomAccum * smoothstep(0.6, 1.0, bloomLuma) * uGlow * 0.5;
+        col += glowColor;
     }
 
-    // 8. Light Leaks overlay
-    if (uLightLeak > 0.001) {
-        float distTL = length(uv - vec2(0.0, 0.0));
-        float leakMask = smoothstep(0.9, 0.0, distTL) * uLightLeak;
-        vec3 leakColor = vec3(1.0, 0.42, 0.12) * leakMask * 0.7;
-        col = clamp(col + leakColor, 0.0, 1.0);
+    // 10. Light Leaks (3 modes)
+    if (uLightLeak > 0.01) {
+        vec3 leakColor = vec3(0.0);
+        if (uLightLeakMode == 0) {
+            // Corner warm amber leak
+            float distCorner = length(uv - vec2(0.0, 0.0));
+            float leak = smoothstep(0.9, 0.1, distCorner);
+            leakColor = vec3(1.0, 0.55, 0.15) * leak * uLightLeak;
+        } else if (uLightLeakMode == 1) {
+            // Top streak leak
+            float streak = smoothstep(0.35, 0.0, uv.y) * (0.8 + 0.2 * sin(uv.x * 25.0));
+            leakColor = vec3(1.0, 0.40, 0.20) * streak * uLightLeak;
+        } else {
+            // Rainbow prism leak
+            float prismDist = abs(uv.x + uv.y * 0.5 - 0.7);
+            float prism = smoothstep(0.2, 0.0, prismDist);
+            leakColor = vec3(sin(uv.x * 10.0) * 0.5 + 0.5, cos(uv.y * 10.0) * 0.5 + 0.5, 0.8) * prism * uLightLeak;
+        }
+        col = screenBlend(col, leakColor);
     }
 
-    // 9. Procedural Organic Film Grain
-    if (uGrain > 0.001) {
-        float noise = (hash(uv * uResolution * 0.85) - 0.5) * 2.0;
-        // Modulate grain by midtone luminance curve
-        float grainWeight = 1.0 - 4.0 * (luma - 0.5) * (luma - 0.5);
-        grainWeight = clamp(grainWeight, 0.15, 1.0);
-        col += noise * uGrain * grainWeight * 0.18;
+    // 11. Film Grain normalized to a 1080p reference dimension
+    // Ensures exact match between 120fps preview and 50MP export
+    if (uGrainIntensity > 0.005) {
+        float refScale = min(uResolution.x, uResolution.y) / 1080.0;
+        vec2 grainUV = uv * (uResolution / max(refScale * uGrainSize, 0.1));
+        float noise = hash(grainUV);
+        float grainWeight = (noise - 0.5) * uGrainIntensity * 0.35;
+        // Grain is more pronounced in midtones than clipped highlights/blacks
+        grainWeight *= (1.0 - 2.0 * abs(luma - 0.5));
+        col = clamp(col + vec3(grainWeight), 0.0, 1.0);
     }
 
-    fragColor = vec4(clamp(col, 0.0, 1.0), baseSample.a);
+    // 12. Analog Scratches & Dust
+    if (uScratches > 0.01) {
+        float scratch = step(0.996 - uScratches * 0.005, hash(vec2(floor(uv.x * 600.0), 12.3)));
+        col = mix(col, vec3(0.9), scratch * 0.4);
+    }
+    if (uDust > 0.01) {
+        float dust = step(0.998 - uDust * 0.003, hash(floor(uv * 400.0)));
+        col = mix(col, vec3(0.1), dust * 0.6);
+    }
+
+    // 13. Vignette
+    if (uVignette > 0.01) {
+        vec2 coord = (uv - 0.5) * vec2(1.0, uResolution.y / max(uResolution.x, 1.0));
+        float vig = smoothstep(0.75, 0.75 - uVignette * 0.45, length(coord));
+        col *= vig;
+    }
+
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}
+
+vec3 screenBlend(vec3 base, vec3 blend) {
+    return 1.0 - (1.0 - base) * (1.0 - blend);
 }
 """
 
         private val QUAD_VERTICES = floatArrayOf(
-            // x, y, u, v
-            -1.0f, -1.0f, 0.0f, 1.0f,
-             1.0f, -1.0f, 1.0f, 1.0f,
-            -1.0f,  1.0f, 0.0f, 0.0f,
-             1.0f,  1.0f, 1.0f, 0.0f
+            -1.0f, -1.0f, 0.0f, 0.0f,
+             1.0f, -1.0f, 1.0f, 0.0f,
+            -1.0f,  1.0f, 0.0f, 1.0f,
+             1.0f,  1.0f, 1.0f, 1.0f
         )
     }
 
@@ -211,6 +348,13 @@ void main() {
             put(QUAD_VERTICES)
             position(0)
         }
+
+    fun invalidateGL() {
+        release()
+        programId = 0
+        vaoId = 0
+        vboId = 0
+    }
 
     fun initGL() {
         if (programId != 0) return
@@ -231,7 +375,6 @@ void main() {
             throw RuntimeException("Program link failed: $log")
         }
 
-        // Setup VAO and VBO
         val vaos = IntArray(1)
         val vbos = IntArray(1)
         GLES30.glGenVertexArrays(1, vaos, 0)
@@ -243,11 +386,9 @@ void main() {
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vboId)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, QUAD_VERTICES.size * 4, vertexBuffer, GLES30.GL_STATIC_DRAW)
 
-        // aPosition
         GLES30.glEnableVertexAttribArray(0)
         GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 4 * 4, 0)
 
-        // aTexCoord
         GLES30.glEnableVertexAttribArray(1)
         GLES30.glVertexAttribPointer(1, 2, GLES30.GL_FLOAT, false, 4 * 4, 2 * 4)
 
@@ -266,12 +407,10 @@ void main() {
 
         GLES30.glUseProgram(programId)
 
-        // Bind source texture
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uTexture"), 0)
 
-        // Uniforms
         val presetInt = when (adjustments.preset) {
             FilmPreset.ORIGINAL -> 0
             FilmPreset.N1600 -> 1
@@ -280,49 +419,61 @@ void main() {
             FilmPreset.MONO -> 4
         }
         GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uPreset"), presetInt)
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(programId, "uResolution"), width.toFloat(), height.toFloat())
+
+        // Light
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uExposure"), adjustments.exposure)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uContrast"), adjustments.contrast)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uHighlights"), adjustments.highlights)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uShadows"), adjustments.shadows)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uWhites"), adjustments.whites)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uBlacks"), adjustments.blacks)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uFade"), adjustments.fade)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uTemperature"), adjustments.temperature)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uTint"), adjustments.tint)
 
-        GLES30.glUniform3f(
-            GLES30.glGetUniformLocation(programId, "uCurveRGB"),
-            adjustments.curveRed,
-            adjustments.curveGreen,
-            adjustments.curveBlue
-        )
+        // 6-Channel HSL
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uHslRed"), adjustments.hslRedHue, adjustments.hslRedSat, adjustments.hslRedLum)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uHslOrange"), adjustments.hslOrangeHue, adjustments.hslOrangeSat, adjustments.hslOrangeLum)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uHslYellow"), adjustments.hslYellowHue, adjustments.hslYellowSat, adjustments.hslYellowLum)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uHslGreen"), adjustments.hslGreenHue, adjustments.hslGreenSat, adjustments.hslGreenLum)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uHslBlue"), adjustments.hslBlueHue, adjustments.hslBlueSat, adjustments.hslBlueLum)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uHslMagenta"), adjustments.hslMagentaHue, adjustments.hslMagentaSat, adjustments.hslMagentaLum)
 
-        GLES30.glUniform3f(
-            GLES30.glGetUniformLocation(programId, "uHslSat1"),
-            adjustments.hslRedSat,
-            adjustments.hslOrangeSat,
-            adjustments.hslYellowSat
-        )
+        // 3-Way Color Grading
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uShadowsTint"), adjustments.shadowsTintR, adjustments.shadowsTintG, adjustments.shadowsTintB)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uMidtonesTint"), adjustments.midtonesTintR, adjustments.midtonesTintG, adjustments.midtonesTintB)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uHighlightsTint"), adjustments.highlightsTintR, adjustments.highlightsTintG, adjustments.highlightsTintB)
 
-        GLES30.glUniform3f(
-            GLES30.glGetUniformLocation(programId, "uHslSat2"),
-            adjustments.hslGreenSat,
-            adjustments.hslBlueSat,
-            adjustments.hslMagentaSat
-        )
+        // Curves & Calibration
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uCurveMaster"), adjustments.curveMaster)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uCurveRGB"), adjustments.curveRed, adjustments.curveGreen, adjustments.curveBlue)
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(programId, "uCalibRGB"), adjustments.calibRed, adjustments.calibGreen, adjustments.calibBlue)
 
+        // Effects
         val activeGrain = maxOf(adjustments.grainIntensity, adjustments.preset.grainDefault)
         val activeHalation = maxOf(adjustments.halationIntensity, adjustments.preset.halationDefault)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uGrain"), activeGrain)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uGrainIntensity"), activeGrain)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uGrainSize"), adjustments.grainSize)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uHalation"), activeHalation)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uGlow"), adjustments.glowIntensity)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uLightLeak"), adjustments.lightLeakIntensity)
-        GLES30.glUniform2f(GLES30.glGetUniformLocation(programId, "uResolution"), width.toFloat(), height.toFloat())
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(programId, "uLightLeakMode"), adjustments.lightLeakMode)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uScratches"), adjustments.scratchesIntensity)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uDust"), adjustments.dustIntensity)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uVignette"), adjustments.vignette)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(programId, "uMotionBlur"), adjustments.motionBlur)
 
-        // Draw quad
         GLES30.glBindVertexArray(vaoId)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         GLES30.glBindVertexArray(0)
     }
 
     /**
-     * Requirement 4:
-     * Full-resolution offline FBO export using the exact same OpenGL ES 3.0 shader pipeline
-     * to guarantee zero visual preview/export mismatch.
+     * Offline headless FBO export:
+     * - Uses EGL_OPENGL_ES3_BIT_KHR in eglChooseConfig
+     * - Cleans up all EGL/GL resources in finally block
+     * - Vertically flips glReadPixels so exported bitmap is right-side up
      */
     fun renderOffscreen(
         sourceBitmap: Bitmap,
@@ -331,71 +482,90 @@ void main() {
         val width = sourceBitmap.width
         val height = sourceBitmap.height
 
-        // 1. Setup EGL Context
-        val eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-        val version = IntArray(2)
-        EGL14.eglInitialize(eglDisplay, version, 0, version, 1)
-
-        val configAttribs = intArrayOf(
-            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
-            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
-            EGL14.EGL_RED_SIZE, 8,
-            EGL14.EGL_GREEN_SIZE, 8,
-            EGL14.EGL_BLUE_SIZE, 8,
-            EGL14.EGL_ALPHA_SIZE, 8,
-            EGL14.EGL_NONE
-        )
-        val configs = arrayOfNulls<EGLConfig>(1)
-        val numConfigs = IntArray(1)
-        EGL14.eglChooseConfig(eglDisplay, configAttribs, 0, configs, 0, 1, numConfigs, 0)
-
-        val contextAttribs = intArrayOf(
-            EGL14.EGL_CONTEXT_CLIENT_VERSION, 3,
-            EGL14.EGL_NONE
-        )
-        val eglContext = EGL14.eglCreateContext(eglDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
-
-        val pbufferAttribs = intArrayOf(
-            EGL14.EGL_WIDTH, width,
-            EGL14.EGL_HEIGHT, height,
-            EGL14.EGL_NONE
-        )
-        val eglSurface = EGL14.eglCreatePbufferSurface(eglDisplay, configs[0], pbufferAttribs, 0)
-        EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-
-        // 2. Initialize GL
-        initGL()
-
-        // 3. Create Source Texture
+        var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
+        var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
+        var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
         val textures = IntArray(1)
-        GLES30.glGenTextures(1, textures, 0)
-        val textureId = textures[0]
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
-        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, sourceBitmap, 0)
 
-        // 4. Render to FBO surface
-        render(textureId, width, height, adjustments)
-        GLES30.glFinish()
+        try {
+            eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+            val version = IntArray(2)
+            EGL14.eglInitialize(eglDisplay, version, 0, version, 1)
 
-        // 5. Read back pixels
-        val pixelBuffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
-        GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pixelBuffer)
+            val configAttribs = intArrayOf(
+                EGL14.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
+                EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+                EGL14.EGL_RED_SIZE, 8,
+                EGL14.EGL_GREEN_SIZE, 8,
+                EGL14.EGL_BLUE_SIZE, 8,
+                EGL14.EGL_ALPHA_SIZE, 8,
+                EGL14.EGL_NONE
+            )
+            val configs = arrayOfNulls<EGLConfig>(1)
+            val numConfigs = IntArray(1)
+            EGL14.eglChooseConfig(eglDisplay, configAttribs, 0, configs, 0, 1, numConfigs, 0)
 
-        val outputBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        outputBitmap.copyPixelsFromBuffer(pixelBuffer)
+            val contextAttribs = intArrayOf(
+                EGL14.EGL_CONTEXT_CLIENT_VERSION, 3,
+                EGL14.EGL_NONE
+            )
+            eglContext = EGL14.eglCreateContext(eglDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0)
 
-        // 6. Cleanup
-        GLES30.glDeleteTextures(1, textures, 0)
-        EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
-        EGL14.eglDestroySurface(eglDisplay, eglSurface)
-        EGL14.eglDestroyContext(eglDisplay, eglContext)
-        EGL14.eglTerminate(eglDisplay)
+            val pbufferAttribs = intArrayOf(
+                EGL14.EGL_WIDTH, width,
+                EGL14.EGL_HEIGHT, height,
+                EGL14.EGL_NONE
+            )
+            eglSurface = EGL14.eglCreatePbufferSurface(eglDisplay, configs[0], pbufferAttribs, 0)
+            EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
 
-        return outputBitmap
+            initGL()
+
+            GLES30.glGenTextures(1, textures, 0)
+            val textureId = textures[0]
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, sourceBitmap, 0)
+
+            render(textureId, width, height, adjustments)
+            GLES30.glFinish()
+
+            val pixelBuffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+            GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pixelBuffer)
+
+            // Vertically flip pixel rows from glReadPixels so exported bitmap is right-side up
+            val flippedBuffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+            val rowBytes = width * 4
+            val row = ByteArray(rowBytes)
+            for (y in height - 1 downTo 0) {
+                pixelBuffer.position(y * rowBytes)
+                pixelBuffer.get(row, 0, rowBytes)
+                flippedBuffer.put(row, 0, rowBytes)
+            }
+            flippedBuffer.position(0)
+
+            val outputBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            outputBitmap.copyPixelsFromBuffer(flippedBuffer)
+            return outputBitmap
+        } finally {
+            if (textures[0] != 0) {
+                GLES30.glDeleteTextures(1, textures, 0)
+            }
+            if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
+                EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                if (eglSurface != EGL14.EGL_NO_SURFACE) {
+                    EGL14.eglDestroySurface(eglDisplay, eglSurface)
+                }
+                if (eglContext != EGL14.EGL_NO_CONTEXT) {
+                    EGL14.eglDestroyContext(eglDisplay, eglContext)
+                }
+                EGL14.eglTerminate(eglDisplay)
+            }
+            invalidateGL()
+        }
     }
 
     private fun compileShader(type: Int, source: String): Int {

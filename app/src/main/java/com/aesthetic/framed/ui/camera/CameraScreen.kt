@@ -68,6 +68,7 @@ fun CameraScreen(
     cameraEngine: CameraEngine,
     horizonSensorManager: HorizonSensorManager,
     onPhotoCaptured: (Uri) -> Unit = {},
+    onOpenLibrary: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -113,7 +114,7 @@ fun CameraScreen(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             horizonSensorManager.stopListening()
-            cameraEngine.release()
+            cameraEngine.pauseCamera()
         }
     }
 
@@ -278,7 +279,16 @@ fun CameraScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // S25 Ultra Quad-Lens Switcher (.6x Ultra-wide, 1x Wide, 3x Telephoto, 5x Periscope)
-                val lensList = listOf(0.6f to ".6", 1.0f to "1x", 3.0f to "3x", 5.0f to "5x")
+                // Mapped to 13mm f/1.9, 23mm f/1.7, 69mm f/2.4, and 115mm f/3.4 with TextHandleMove haptic feedback
+                data class LensInfo(val ratio: Float, val label: String, val focalLength: String, val aperture: String)
+                val lensList = listOf(
+                    LensInfo(0.6f, ".6", "13mm", "f/1.9"),
+                    LensInfo(1.0f, "1x", "23mm", "f/1.7"),
+                    LensInfo(3.0f, "3x", "69mm", "f/2.4"),
+                    LensInfo(5.0f, "5x", "115mm", "f/3.4")
+                )
+                val currentLens = lensList.minByOrNull { Math.abs(exposureState.zoomRatio - it.ratio) } ?: lensList[1]
+
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
@@ -288,21 +298,21 @@ fun CameraScreen(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    lensList.forEach { (ratio, label) ->
-                        val isSelected = Math.abs(exposureState.zoomRatio - ratio) < 0.2f
+                    lensList.forEach { lens ->
+                        val isSelected = Math.abs(exposureState.zoomRatio - lens.ratio) < 0.2f
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
                                 .background(if (isSelected) StudioText else Color.Transparent)
                                 .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    cameraEngine.setZoomRatio(ratio, lifecycleOwner, previewView)
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    cameraEngine.setZoomRatio(lens.ratio, lifecycleOwner, previewView)
                                 },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = label,
+                                text = lens.label,
                                 color = if (isSelected) StudioBlack else StudioTextMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -312,8 +322,17 @@ fun CameraScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "${currentLens.focalLength}  ${currentLens.aperture}",
+                    color = StudioTextMuted,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium
+                )
+
                 if (exposureState.isTelephotoRawRestricted) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "TELEPHOTO ACTIVE: 98% JPEG GUARDRAIL",
                         color = com.aesthetic.framed.ui.theme.AmberRetro,
@@ -406,7 +425,7 @@ fun CameraScreen(
                         }
                     )
 
-                    // Gallery / Last thumbnail placeholder
+                    // Framed Library navigation button
                     Box(
                         modifier = Modifier
                             .size(46.dp)
@@ -414,15 +433,16 @@ fun CameraScreen(
                             .background(StudioSurface)
                             .border(1.dp, StudioBorder, RoundedCornerShape(10.dp))
                             .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                lastCapturedUri?.let { onPhotoCaptured(it) }
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onOpenLibrary()
                             },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (lastCapturedUri != null) "IMG" else "—",
-                            color = StudioTextMuted,
+                            text = "LIB",
+                            color = StudioText,
                             fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
                     }

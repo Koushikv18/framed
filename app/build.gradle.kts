@@ -6,11 +6,11 @@ plugins {
 
 android {
     namespace = "com.aesthetic.framed"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.aesthetic.framed"
-        minSdk = 29
+        minSdk = 34
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
@@ -69,15 +69,15 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // CameraX - test version
-    val cameraxVersion = "1.4.1"
+    // CameraX 1.7.0
+    val cameraxVersion = "1.7.0"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    // ExifInterface
-    implementation("androidx.exifinterface:exifinterface:1.3.7")
+    // ExifInterface 1.4.2
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
 
     // Google ML Kit Object Detection & Tracking (100% offline bundled model)
     implementation("com.google.mlkit:object-detection:17.0.2")

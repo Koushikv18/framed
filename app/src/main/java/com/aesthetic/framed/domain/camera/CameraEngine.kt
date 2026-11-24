@@ -25,6 +25,8 @@ import com.aesthetic.framed.data.model.ManualExposureState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.ExecutorService
@@ -34,10 +36,9 @@ import java.util.concurrent.Executors
 class CameraEngine(private val context: Context) {
 
     companion object {
-        // CameraX native raw output format constants
-        const val OUTPUT_FORMAT_JPEG = ImageCapture.OUTPUT_FORMAT_JPEG
-        const val OUTPUT_FORMAT_RAW = 2
-        const val OUTPUT_FORMAT_RAW_JPEG = 3
+        val OUTPUT_FORMAT_JPEG = ImageCapture.OUTPUT_FORMAT_JPEG
+        val OUTPUT_FORMAT_RAW = ImageCapture.OUTPUT_FORMAT_RAW
+        val OUTPUT_FORMAT_RAW_JPEG = ImageCapture.OUTPUT_FORMAT_RAW_JPEG
     }
 
     private var cameraProvider: ProcessCameraProvider? = null
@@ -55,11 +56,22 @@ class CameraEngine(private val context: Context) {
     private val _currentAspectRatio = MutableStateFlow(CameraAspectRatio.RATIO_4_3)
     val currentAspectRatio: StateFlow<CameraAspectRatio> = _currentAspectRatio.asStateFlow()
 
+    /**
+     * Fix the dead cameraExecutor bug: Ensure cameraExecutor is active
+     * before binding use cases or running analysis.
+     */
+    fun ensureExecutorActive() {
+        if (cameraExecutor.isShutdown || cameraExecutor.isTerminated) {
+            cameraExecutor = Executors.newSingleThreadExecutor()
+        }
+    }
+
     fun initialize(
         lifecycleOwner: LifecycleOwner,
         previewView: PreviewView,
         onInitialized: () -> Unit = {}
     ) {
+        ensureExecutorActive()
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             cameraProvider = cameraProviderFuture.get()
@@ -70,8 +82,7 @@ class CameraEngine(private val context: Context) {
     }
 
     /**
-     * Requirement 1:
-     * Use CameraX native ImageCaptureCapabilities to inspect supported output formats for DNG RAW.
+     * Inspect native supported output formats for DNG RAW.
      */
     private fun checkRawCapabilities() {
         val currentCamera = camera ?: return
@@ -119,6 +130,7 @@ class CameraEngine(private val context: Context) {
         )
 
         currentCamera?.cameraControl?.setZoomRatio(clampedRatio)
+        compositionAnalyzer.updateCurrentZoom(clampedRatio)
 
         if (shouldRebind && lifecycleOwner != null && previewView != null) {
             bindCameraUseCases(lifecycleOwner, previewView)
@@ -144,10 +156,12 @@ class CameraEngine(private val context: Context) {
     }
 
     fun resumeCamera(lifecycleOwner: LifecycleOwner, previewView: PreviewView) {
+        ensureExecutorActive()
         bindCameraUseCases(lifecycleOwner, previewView)
     }
 
     fun bindCameraUseCases(lifecycleOwner: LifecycleOwner, previewView: PreviewView) {
+        ensureExecutorActive()
         val provider = cameraProvider ?: return
         provider.unbindAll()
 
@@ -240,11 +254,6 @@ class CameraEngine(private val context: Context) {
         applyFlashParameters()
     }
 
-    /**
-     * Requirement 2:
-     * Explicitly toggle CaptureRequest.CONTROL_AE_MODE between CONTROL_AE_MODE_OFF
-     * (when manual ISO/Shutter is active) and CONTROL_AE_MODE_ON (when EV compensation is used).
-     */
     private fun applyExposureParameters() {
         val activeCamera = camera ?: return
         val state = _exposureState.value
@@ -254,7 +263,6 @@ class CameraEngine(private val context: Context) {
 
         try {
             if (state.isManualMode) {
-                // Manual AE OFF: explicitly control sensor sensitivity and exposure time
                 requestOptions.setCaptureRequestOption(
                     CaptureRequest.CONTROL_AE_MODE,
                     CaptureRequest.CONTROL_AE_MODE_OFF
@@ -268,7 +276,6 @@ class CameraEngine(private val context: Context) {
                     state.shutterSpeedNanos
                 )
             } else {
-                // Auto AE ON: camera computes exposure, and user EV compensation is applied
                 requestOptions.setCaptureRequestOption(
                     CaptureRequest.CONTROL_AE_MODE,
                     CaptureRequest.CONTROL_AE_MODE_ON
@@ -283,7 +290,6 @@ class CameraEngine(private val context: Context) {
             camera2Control.setCaptureRequestOptions(requestOptions.build())
         } catch (e: Exception) {
             e.printStackTrace()
-            // Graceful fallback to Auto Exposure
             try {
                 val fallbackOptions = CaptureRequestOptions.Builder()
                     .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
@@ -313,63 +319,127 @@ class CameraEngine(private val context: Context) {
         }
     }
 
+    /**
+     * Take picture with S25 Ultra hardware protection:
+     * - Restricts RAW to 0.6x and 1.0x wide lenses.
+     * - When OUTPUT_FORMAT_RAW_JPEG is active, supplies dual OutputFileOptions (rawOptions & jpegOptions)
+     *   and copies both .dng and .jpg to context.filesDir/originals for non-destructive editing.
+     */
     fun takePhoto(
         onSuccess: (Uri) -> Unit,
         onError: (ImageCaptureException) -> Unit
     ) {
+        ensureExecutorActive()
         val capture = imageCapture ?: return
 
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
         val isTelephoto = _exposureState.value.zoomRatio >= 2.5f
-        val isRaw = _exposureState.value.isRawEnabled && _exposureState.value.isRawSupported && !isTelephoto
-        val extension = if (isRaw) "dng" else "jpg"
-        val mimeType = if (isRaw) "image/x-adobe-dng" else "image/jpeg"
-        val fileName = "FRAMED_$timeStamp.$extension"
+        val isDualRawActive = _exposureState.value.isRawEnabled && _exposureState.value.isRawSupported && !isTelephoto
+
+        val originalsDir = File(context.filesDir, "originals").apply {
+            if (!exists()) mkdirs()
+        }
+        val privateJpegFile = File(originalsDir, "ORIGINAL_${timeStamp}.jpg")
 
         val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "FRAMED_${timeStamp}.jpg")
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/FramedClone")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
 
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(
+        val jpegOptions = ImageCapture.OutputFileOptions.Builder(
             context.contentResolver,
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             contentValues
         ).build()
 
-        capture.takePicture(
-            outputOptions,
-            cameraExecutor,
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    val savedUri = outputFileResults.savedUri
-                    if (savedUri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val updateValues = ContentValues().apply {
-                            put(MediaStore.Images.Media.IS_PENDING, 0)
-                        }
-                        context.contentResolver.update(savedUri, updateValues, null, null)
-                    }
-                    if (savedUri != null) {
-                        ContextCompat.getMainExecutor(context).execute {
-                            onSuccess(savedUri)
-                        }
-                    }
-                }
+        if (isDualRawActive) {
+            // Dual RAW + JPEG capture via CameraX 1.7.0
+            val privateDngFile = File(originalsDir, "ORIGINAL_${timeStamp}.dng")
+            val rawOptions = ImageCapture.OutputFileOptions.Builder(privateDngFile).build()
 
-                override fun onError(exception: ImageCaptureException) {
-                    ContextCompat.getMainExecutor(context).execute {
-                        onError(exception)
+            capture.takePicture(
+                rawOptions,
+                jpegOptions,
+                cameraExecutor,
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                        val savedUri = outputFileResults.savedUri
+                        if (savedUri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val updateValues = ContentValues().apply {
+                                put(MediaStore.Images.Media.IS_PENDING, 0)
+                            }
+                            context.contentResolver.update(savedUri, updateValues, null, null)
+                        }
+                        // Copy JPEG into app-private originals
+                        if (savedUri != null) {
+                            try {
+                                context.contentResolver.openInputStream(savedUri)?.use { input ->
+                                    FileOutputStream(privateJpegFile).use { output -> input.copyTo(output) }
+                                }
+                            } catch (_: Exception) {}
+                        }
+                        val finalUri = savedUri ?: Uri.fromFile(privateJpegFile)
+                        ContextCompat.getMainExecutor(context).execute {
+                            onSuccess(finalUri)
+                        }
+                    }
+
+                    override fun onError(exception: ImageCaptureException) {
+                        ContextCompat.getMainExecutor(context).execute {
+                            onError(exception)
+                        }
                     }
                 }
-            }
-        )
+            )
+        } else {
+            // Standard JPEG capture
+            capture.takePicture(
+                jpegOptions,
+                cameraExecutor,
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                        val savedUri = outputFileResults.savedUri
+                        if (savedUri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val updateValues = ContentValues().apply {
+                                put(MediaStore.Images.Media.IS_PENDING, 0)
+                            }
+                            context.contentResolver.update(savedUri, updateValues, null, null)
+                        }
+                        if (savedUri != null) {
+                            try {
+                                context.contentResolver.openInputStream(savedUri)?.use { input ->
+                                    FileOutputStream(privateJpegFile).use { output -> input.copyTo(output) }
+                                }
+                            } catch (_: Exception) {}
+                        }
+                        val finalUri = savedUri ?: Uri.fromFile(privateJpegFile)
+                        ContextCompat.getMainExecutor(context).execute {
+                            onSuccess(finalUri)
+                        }
+                    }
+
+                    override fun onError(exception: ImageCaptureException) {
+                        ContextCompat.getMainExecutor(context).execute {
+                            onError(exception)
+                        }
+                    }
+                }
+            )
+        }
     }
 
     fun release() {
+        // Do not permanently kill cameraExecutor during normal navigation
+        try {
+            cameraProvider?.unbindAll()
+        } catch (_: Exception) {}
+    }
+
+    fun destroy() {
         cameraExecutor.shutdown()
     }
 }
