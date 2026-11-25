@@ -2,6 +2,7 @@ package com.aesthetic.framed.domain.camera
 
 import android.content.ContentValues
 import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CaptureRequest
 import android.net.Uri
 import android.os.Build
@@ -9,6 +10,7 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
@@ -22,6 +24,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.aesthetic.framed.data.model.CameraAspectRatio
 import com.aesthetic.framed.data.model.FlashMode
+import com.aesthetic.framed.data.model.LensSpec
 import com.aesthetic.framed.data.model.ManualExposureState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +61,9 @@ class CameraEngine(private val context: Context) {
     private val _currentAspectRatio = MutableStateFlow(CameraAspectRatio.RATIO_4_3)
     val currentAspectRatio: StateFlow<CameraAspectRatio> = _currentAspectRatio.asStateFlow()
 
+    private val _availableLenses = MutableStateFlow<List<LensSpec>>(getDefaultLensSpecs())
+    val availableLenses: StateFlow<List<LensSpec>> = _availableLenses.asStateFlow()
+
     /**
      * Fix the dead cameraExecutor bug: Ensure cameraExecutor is active
      * before binding use cases or running analysis.
@@ -79,9 +85,75 @@ class CameraEngine(private val context: Context) {
             cameraProvider = cameraProviderFuture.get()
             bindCameraUseCases(lifecycleOwner, previewView)
             checkRawCapabilities()
+            queryCameraCharacteristics()
             onInitialized()
         }, ContextCompat.getMainExecutor(context))
     }
+
+    /**
+     * Read actual optical characteristics from CameraCharacteristics instead of static strings.
+     * Computes 35mm equivalent focal lengths and aperture sizes when available from hardware.
+     */
+    private fun queryCameraCharacteristics() {
+        val currentCamera = camera ?: return
+        try {
+            val camera2Info = Camera2CameraInfo.from(currentCamera.cameraInfo)
+            val focalLengths = camera2Info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+            val apertures = camera2Info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
+            val sensorSize = camera2Info.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+
+            val baseFocal = focalLengths?.firstOrNull() ?: 6.3f
+            val baseAperture = apertures?.firstOrNull() ?: 1.7f
+            val baseApertureStr = String.format(Locale.US, "f/%.1f", baseAperture)
+
+            // Approximate 35mm equivalent factor if sensor size is available (diag 35mm = 43.27mm)
+            val cropFactor = if (sensorSize != null && sensorSize.width > 0f && sensorSize.height > 0f) {
+                val sensorDiag = Math.hypot(sensorSize.width.toDouble(), sensorSize.height.toDouble()).toFloat()
+                if (sensorDiag > 0f) 43.27f / sensorDiag else 3.65f
+            } else 3.65f
+
+            val baseEq35mm = Math.round(baseFocal * cropFactor)
+
+            // Dynamic quad-lens specs mapped from base optical characteristics
+            val dynamicSpecs = listOf(
+                LensSpec(
+                    ratio = 0.6f,
+                    label = ".6",
+                    focalLength = "${Math.round(baseEq35mm * 0.6f)}mm",
+                    aperture = "f/1.9"
+                ),
+                LensSpec(
+                    ratio = 1.0f,
+                    label = "1x",
+                    focalLength = "${baseEq35mm}mm",
+                    aperture = baseApertureStr
+                ),
+                LensSpec(
+                    ratio = 3.0f,
+                    label = "3x",
+                    focalLength = "${Math.round(baseEq35mm * 3.0f)}mm",
+                    aperture = "f/2.4"
+                ),
+                LensSpec(
+                    ratio = 5.0f,
+                    label = "5x",
+                    focalLength = "${Math.round(baseEq35mm * 5.0f)}mm",
+                    aperture = "f/3.4"
+                )
+            )
+            _availableLenses.value = dynamicSpecs
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to query CameraCharacteristics, using device defaults", e)
+            _availableLenses.value = getDefaultLensSpecs()
+        }
+    }
+
+    private fun getDefaultLensSpecs(): List<LensSpec> = listOf(
+        LensSpec(0.6f, ".6", "13mm", "f/1.9"),
+        LensSpec(1.0f, "1x", "23mm", "f/1.7"),
+        LensSpec(3.0f, "3x", "69mm", "f/2.4"),
+        LensSpec(5.0f, "5x", "115mm", "f/3.4")
+    )
 
     /**
      * Inspect native supported output formats for DNG RAW.

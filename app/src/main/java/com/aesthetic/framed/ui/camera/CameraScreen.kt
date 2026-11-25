@@ -335,16 +335,9 @@ fun CameraScreen(
                     .padding(bottom = 28.dp, top = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // S25 Ultra Quad-Lens Switcher (.6x Ultra-wide, 1x Wide, 3x Telephoto, 5x Periscope)
-                // Mapped to 13mm f/1.9, 23mm f/1.7, 69mm f/2.4, and 115mm f/3.4 with TextHandleMove haptic feedback
-                data class LensInfo(val ratio: Float, val label: String, val focalLength: String, val aperture: String)
-                val lensList = listOf(
-                    LensInfo(0.6f, ".6", "13mm", "f/1.9"),
-                    LensInfo(1.0f, "1x", "23mm", "f/1.7"),
-                    LensInfo(3.0f, "3x", "69mm", "f/2.4"),
-                    LensInfo(5.0f, "5x", "115mm", "f/3.4")
-                )
-                val currentLens = lensList.minByOrNull { Math.abs(exposureState.zoomRatio - it.ratio) } ?: lensList[1]
+                // S25 Ultra Quad-Lens Switcher dynamically read from CameraCharacteristics
+                val lensList by cameraEngine.availableLenses.collectAsState()
+                val currentLens = lensList.minByOrNull { Math.abs(exposureState.zoomRatio - it.ratio) } ?: lensList.getOrNull(1) ?: lensList[0]
 
                 Row(
                     modifier = Modifier

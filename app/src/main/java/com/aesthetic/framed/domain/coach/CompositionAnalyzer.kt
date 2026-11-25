@@ -342,7 +342,7 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
         )
     }
 
-    private fun calculateIoU(r1: RectF, r2: RectF): Float {
+    internal fun calculateIoU(r1: RectF, r2: RectF): Float {
         val interLeft = maxOf(r1.left, r2.left)
         val interTop = maxOf(r1.top, r2.top)
         val interRight = minOf(r1.right, r2.right)
@@ -356,6 +356,14 @@ class CompositionAnalyzer(private val context: Context? = null) : ImageAnalysis.
             return if (unionArea > 0f) interArea / unionArea else 0f
         }
         return 0f
+    }
+
+    internal fun calculateThirdsDistance(cx: Float, cy: Float): Float {
+        val thirdLinesX = listOf(1f / 3f, 2f / 3f)
+        val thirdLinesY = listOf(1f / 3f, 2f / 3f)
+        val minDx = thirdLinesX.minOf { abs(cx - it) }
+        val minDy = thirdLinesY.minOf { abs(cy - it) }
+        return Math.hypot(minDx.toDouble(), minDy.toDouble()).toFloat()
     }
 
     private fun computeAverageLuma(imageProxy: ImageProxy): Float {

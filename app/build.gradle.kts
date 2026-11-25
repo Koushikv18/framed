@@ -58,6 +58,9 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -106,6 +109,12 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20231013")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
