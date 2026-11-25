@@ -27,17 +27,25 @@
     volatile <fields>;
 }
 
-# MediaPipe Tasks Vision
+# MediaPipe Tasks Vision & Core Native Libraries
 -keep class com.google.mediapipe.tasks.vision.** { *; }
 -keep class com.google.mediapipe.tasks.core.** { *; }
+-keep class com.google.mediapipe.framework.** { *; }
+-keep class com.google.mediapipe.components.** { *; }
 -dontwarn com.google.mediapipe.**
+-keepclasseswithmembernames class com.google.mediapipe.** {
+    native <methods>;
+}
 
-# TensorFlow Lite & GPU Delegate
+# TensorFlow Lite, GPU Delegate & Support Libraries
 -keep class org.tensorflow.lite.** { *; }
 -dontwarn org.tensorflow.lite.**
+-keep class org.tensorflow.lite.gpu.** { *; }
+-dontwarn org.tensorflow.lite.gpu.**
+-keepclasseswithmembernames class org.tensorflow.lite.** {
+    native <methods>;
+}
 
 # Framed Data & Recipe Models
--keep class com.aesthetic.framed.data.model.** { *; }
--keep class com.aesthetic.framed.domain.recipe.** { *; }
 -keep class com.aesthetic.framed.data.model.** { *; }
 -keep class com.aesthetic.framed.domain.recipe.** { *; }

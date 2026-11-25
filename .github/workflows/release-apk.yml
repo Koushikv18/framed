@@ -33,20 +33,20 @@ jobs:
 
       - name: Prepare Signing Keystore
         run: |
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
-            echo "KEYSTORE_PATH=$(pwd)/release.keystore" >> $GITHUB_ENV
-            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
-          else
-            echo "No custom release keystore secret configured. Generating dedicated CI release keystore..."
-            keytool -genkey -v -keystore release.keystore -alias framedkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Framed, OU=Android, O=Aesthetic, L=Seoul, S=Seoul, C=KR"
-            echo "KEYSTORE_PATH=$(pwd)/release.keystore" >> $GITHUB_ENV
-            echo "KEYSTORE_PASSWORD=android" >> $GITHUB_ENV
-            echo "KEY_ALIAS=framedkey" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=android" >> $GITHUB_ENV
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "::error::Missing required secret KEYSTORE_BASE64! Signed release builds cannot proceed without the release keystore secret."
+            exit 1
           fi
+          if [ -z "${{ secrets.KEYSTORE_PASSWORD }}" ] || [ -z "${{ secrets.KEY_ALIAS }}" ] || [ -z "${{ secrets.KEY_PASSWORD }}" ]; then
+            echo "::error::Missing required release signing secrets (KEYSTORE_PASSWORD, KEY_ALIAS, or KEY_PASSWORD)!"
+            exit 1
+          fi
+
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+          echo "KEYSTORE_PATH=$(pwd)/release.keystore" >> $GITHUB_ENV
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
 
       - name: Build Release APK
         run: ./gradlew assembleRelease --stacktrace
@@ -58,13 +58,11 @@ jobs:
 
       - name: Prepare APK Artifact
         run: |
-          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk Framed.apk
-          elif [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
-            cp app/build/outputs/apk/release/app-release-unsigned.apk Framed.apk
-          else
-            cp app/build/outputs/apk/debug/app-debug.apk Framed.apk
+          if [ ! -f app/build/outputs/apk/release/app-release.apk ]; then
+            echo "::error::Expected app/build/outputs/apk/release/app-release.apk was not generated!"
+            exit 1
           fi
+          cp app/build/outputs/apk/release/app-release.apk Framed.apk
 
       - name: Force Update 'latest' Git Tag
         run: |
